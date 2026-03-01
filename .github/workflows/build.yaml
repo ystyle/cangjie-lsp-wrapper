@@ -1,0 +1,53 @@
+name: Build
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.21
+
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          flag="-s -w -X main.version=$version"
+          mkdir -p build
+
+          GOOS=linux   GOARCH=amd64 go build -ldflags "$flag" -o build/cangjie-lsp-wrapper-linux-amd64       ./cmd/cangjie-lsp-wrapper
+          GOOS=linux   GOARCH=arm64 go build -ldflags "$flag" -o build/cangjie-lsp-wrapper-linux-arm64       ./cmd/cangjie-lsp-wrapper
+          GOOS=darwin  GOARCH=amd64 go build -ldflags "$flag" -o build/cangjie-lsp-wrapper-darwin-amd64      ./cmd/cangjie-lsp-wrapper
+          GOOS=darwin  GOARCH=arm64 go build -ldflags "$flag" -o build/cangjie-lsp-wrapper-darwin-arm64      ./cmd/cangjie-lsp-wrapper
+          GOOS=windows GOARCH=amd64 go build -ldflags "$flag" -o build/cangjie-lsp-wrapper-windows-amd64.exe ./cmd/cangjie-lsp-wrapper
+          GOOS=windows GOARCH=arm64 go build -ldflags "$flag" -o build/cangjie-lsp-wrapper-windows-arm64.exe ./cmd/cangjie-lsp-wrapper
+
+      - name: Create archives
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          cd build
+          tar -czvf cangjie-lsp-wrapper_${version}_linux_amd64.tar.gz   cangjie-lsp-wrapper-linux-amd64
+          tar -czvf cangjie-lsp-wrapper_${version}_linux_arm64.tar.gz   cangjie-lsp-wrapper-linux-arm64
+          tar -czvf cangjie-lsp-wrapper_${version}_darwin_amd64.tar.gz  cangjie-lsp-wrapper-darwin-amd64
+          tar -czvf cangjie-lsp-wrapper_${version}_darwin_arm64.tar.gz  cangjie-lsp-wrapper-darwin-arm64
+          zip     cangjie-lsp-wrapper_${version}_windows_amd64.zip      cangjie-lsp-wrapper-windows-amd64.exe
+          zip     cangjie-lsp-wrapper_${version}_windows_arm64.zip      cangjie-lsp-wrapper-windows-arm64.exe
+
+      - name: Upload release binaries
+        uses: alexellis/upload-assets@0.2.2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          asset_paths: '["./build/*.tar.gz", "./build/*.zip"]'

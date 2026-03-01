@@ -1,0 +1,44 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build
+*.out
+*.o
+*.a
+build/
+
+# Go
+go.work
+go.work.sum
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+.log/
+.cache/
+
+# Test
+coverage.out
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+demo/
+test-client/
+test-lsp.sh
+lua-lsp-init.json
+opencode-init.json
+.opencode
+.vscode
