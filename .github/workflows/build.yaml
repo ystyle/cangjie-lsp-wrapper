@@ -45,9 +45,7 @@ jobs:
           zip     cangjie-lsp-wrapper_${version}_windows_amd64.zip      cangjie-lsp-wrapper-windows-amd64.exe
           zip     cangjie-lsp-wrapper_${version}_windows_arm64.zip      cangjie-lsp-wrapper-windows-arm64.exe
 
-      - name: Upload release binaries
-        uses: alexellis/upload-assets@0.2.2
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Release
+        uses: softprops/action-gh-release@v1
         with:
-          asset_paths: '["./build/*.tar.gz", "./build/*.zip"]'
+          files: ./build/*
