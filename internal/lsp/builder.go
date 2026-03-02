@@ -88,7 +88,7 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 		if len(requires) > 0 {
 			reqs = requires
 		} else {
-			reqs = []interface{}{}
+			reqs = map[string]types.DepRef{}
 		}
 
 		multiModule[moduleURI] = types.ModuleConfig{
@@ -130,7 +130,7 @@ func (b *ConfigBuilder) buildRequiresFromModule(cjpmToml *types.CjpmToml, module
 }
 
 func (b *ConfigBuilder) buildWorkspaceFolders() []types.WorkspaceFolder {
-	workspaceName := filepath.Base(b.rootDir)
+	workspaceName := b.rootDir
 	workspaceURI := utils.FilePathToURI(b.rootDir)
 	if b.isWindows {
 		workspaceURI = utils.EscapeWindowsURI(workspaceURI)

@@ -55,7 +55,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	cmd := exec.Command(lspServerPath, os.Args[1:]...)
+	args := append([]string{"--enable-log=true", "--log-path=" + cjHome}, os.Args[1:]...)
+	cmd := exec.Command(lspServerPath, args...)
 	cmd.Env = mergeEnv(os.Environ(), buildEnv(cjHome))
 
 	stdinPipe, err := cmd.StdinPipe()
@@ -220,6 +221,7 @@ func (p *LSPProxy) interceptRequest(content []byte) []byte {
 
 				p.initialized = true
 				modified, _ := json.Marshal(req)
+				logger.Printf("Modified request: %s", string(modified))
 				return modified
 			}
 		}

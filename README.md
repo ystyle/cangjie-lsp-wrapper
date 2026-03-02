@@ -46,6 +46,34 @@ vim.api.nvim_create_autocmd("FileType", {
 }
 ```
 
+### Kate 配置
+
+编辑 `~/.config/kate/lspclient/settings.json`：
+
+```json
+{
+  "servers": {
+    "Cangjie": {
+      "command": ["/path/to/cangjie-lsp-wrapper", "-V"],
+      "rootIndicationFileNames": ["cjpm.toml"],
+      "highlightingModeRegex": ".*",
+      "fileExtensions": [".cj"]
+    }
+  }
+}
+```
+
+## 注意事项
+
+### Language ID 必须为 `Cangjie`
+
+LSP Server 要求 `language id` 必须是 `Cangjie`（注意大小写）。部分客户端的配置 key 会作为 language id 发送给 LSP：
+
+- **Kate**: `servers` 中的 key 必须是 `"Cangjie"`
+- **Neovim**: 需要 `vim.filetype.add({ extension = { cj = "Cangjie" } })`
+
+如果配置错误，LSP 功能可能无法正常工作（如 references、hover 等返回 null）。
+
 ## License
 
 MIT
