@@ -33,12 +33,24 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 ```
 
+如果不想将 filetype 设为 `Cangjie`，可以通过 `get_language_id` 指定：
+
+```lua
+vim.lsp.start({
+  name = "cangjie-wrapper",
+  cmd = { "/path/to/cangjie-lsp-wrapper", "-V" },
+  root_dir = vim.fn.getcwd(),
+  get_language_id = function()
+    return "Cangjie"
+  end,
+})
+
 ### OpenCode 配置
 
 ```json
 {
   "lsp": {
-    "cangjie": {
+    "Cangjie": {
       "command": ["/path/to/cangjie-lsp-wrapper", "-V"],
       "extensions": [".cj"]
     }
