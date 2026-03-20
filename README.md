@@ -47,12 +47,18 @@ vim.lsp.start({
 
 ### OpenCode 配置
 
+在项目根目录创建 `.opencode/config.json`：
+
 ```json
 {
+  "$schema": "https://opencode.ai/config.json",
   "lsp": {
     "Cangjie": {
       "command": ["/path/to/cangjie-lsp-wrapper", "-V"],
-      "extensions": [".cj"]
+      "extensions": [".cj"],
+      "env": {
+        "CANGJIE_HOME": "{env:CANGJIE_HOME}"
+      }
     }
   }
 }
