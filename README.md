@@ -44,6 +44,7 @@ vim.lsp.start({
     return "Cangjie"
   end,
 })
+```
 
 ### OpenCode 配置
 
