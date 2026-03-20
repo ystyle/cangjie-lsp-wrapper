@@ -78,6 +78,7 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 		}
 
 		requires := b.buildRequiresFromModule(cjpmToml, modulePath)
+		binDeps := cjpmToml.GetBinDependencies()
 
 		moduleURI := utils.FilePathToURI(modulePath)
 		if b.isWindows {
@@ -91,9 +92,12 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 			reqs = map[string]types.DepRef{}
 		}
 
+		packageRequires := b.buildPackageRequires(binDeps)
+
 		multiModule[moduleURI] = types.ModuleConfig{
-			Name:     packageName,
-			Requires: reqs,
+			Name:            packageName,
+			Requires:        reqs,
+			PackageRequires: packageRequires,
 		}
 	}
 
@@ -129,12 +133,49 @@ func (b *ConfigBuilder) buildRequiresFromModule(cjpmToml *types.CjpmToml, module
 	return requires
 }
 
+func (b *ConfigBuilder) buildPackageRequires(binDeps *types.BinDependencies) *types.PackageRequires {
+	if binDeps == nil {
+		return nil
+	}
+
+	pkgRequires := &types.PackageRequires{
+		PackageOption: make(map[string]string),
+		PathOption:    []string{},
+	}
+
+	if binDeps.PathOption != nil {
+		for _, path := range binDeps.PathOption {
+			uri := b.buildBinDepPathURI(path)
+			pkgRequires.PathOption = append(pkgRequires.PathOption, uri)
+		}
+	}
+
+	if binDeps.PackageOption != nil {
+		pkgRequires.PackageOption = binDeps.PackageOption
+	}
+
+	return pkgRequires
+}
+
+func (b *ConfigBuilder) buildBinDepPathURI(path string) string {
+	absPath := path
+	if !filepath.IsAbs(absPath) {
+		absPath = filepath.Join(b.rootDir, path)
+	}
+	uri := utils.FilePathToURI(absPath)
+	if b.isWindows {
+		uri = utils.EscapeWindowsURI(uri)
+	}
+	return uri
+}
+
 func (b *ConfigBuilder) buildWorkspaceFolders() []types.WorkspaceFolder {
-	workspaceName := b.rootDir
 	workspaceURI := utils.FilePathToURI(b.rootDir)
 	if b.isWindows {
 		workspaceURI = utils.EscapeWindowsURI(workspaceURI)
 	}
+
+	workspaceName := filepath.Base(b.rootDir)
 
 	return []types.WorkspaceFolder{
 		{

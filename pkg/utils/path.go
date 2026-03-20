@@ -10,7 +10,10 @@ func FilePathToURI(path string) string {
 	if runtime.GOOS == "windows" {
 		return formatWindowsURI(path)
 	}
-	return "file://" + path
+	encodedPath := url.PathEscape(path)
+	encodedPath = strings.ReplaceAll(encodedPath, "%2F", "/")
+	encodedPath = strings.ReplaceAll(encodedPath, "$", "%24")
+	return "file://" + encodedPath
 }
 
 func formatWindowsURI(path string) string {

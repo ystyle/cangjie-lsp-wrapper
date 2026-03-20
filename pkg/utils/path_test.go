@@ -21,6 +21,16 @@ func TestFilePathToURI(t *testing.T) {
 	}
 }
 
+func TestFilePathToURIWithEnvVar(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		result := FilePathToURI("/home/user/project/${CANGJIE_STDX_PATH}")
+		expected := "file:///home/user/project/%24%7BCANGJIE_STDX_PATH%7D"
+		if result != expected {
+			t.Errorf("expected %s, got %s", expected, result)
+		}
+	}
+}
+
 func TestEscapeWindowsURI(t *testing.T) {
 	uri := "file:///C:/Users/test/project"
 	result := EscapeWindowsURI(uri)

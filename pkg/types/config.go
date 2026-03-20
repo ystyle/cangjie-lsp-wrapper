@@ -1,5 +1,7 @@
 package types
 
+import "runtime"
+
 type Dependency struct {
 	Type       string `json:"type" toml:"-"`
 	Path       string `json:"path,omitempty" toml:"path"`
@@ -33,12 +35,51 @@ type Package struct {
 	PackageConfiguration  map[string]interface{} `toml:"package-configuration,omitempty"`
 }
 
+type BinDependencies struct {
+	PathOption    []string          `toml:"path-option,omitempty"`
+	PackageOption map[string]string `toml:"package-option,omitempty"`
+}
+
+type Target struct {
+	CompileOption         string                `toml:"compile-option,omitempty"`
+	OverrideCompileOption string                `toml:"override-compile-option,omitempty"`
+	LinkOption            string                `toml:"link-option,omitempty"`
+	BinDependencies       *BinDependencies      `toml:"bin-dependencies,omitempty"`
+	Dependencies          map[string]Dependency `toml:"dependencies,omitempty"`
+}
+
 type CjpmToml struct {
 	Package            Package               `toml:"package"`
 	Dependencies       map[string]Dependency `toml:"dependencies"`
 	TestDependencies   map[string]Dependency `toml:"test-dependencies"`
 	ScriptDependencies map[string]Dependency `toml:"script-dependencies"`
 	Replace            map[string]Dependency `toml:"replace"`
+	Targets            map[string]Target     `toml:"target"`
+}
+
+func (c *CjpmToml) GetBinDependencies() *BinDependencies {
+	hostTarget := getHostTarget()
+	if target, ok := c.Targets[hostTarget]; ok && target.BinDependencies != nil {
+		return target.BinDependencies
+	}
+	return nil
+}
+
+func getHostTarget() string {
+	switch runtime.GOOS + "/" + runtime.GOARCH {
+	case "linux/amd64":
+		return "x86_64-unknown-linux-gnu"
+	case "linux/arm64":
+		return "aarch64-unknown-linux-gnu"
+	case "darwin/amd64":
+		return "x86_64-apple-darwin"
+	case "darwin/arm64":
+		return "aarch64-apple-darwin"
+	case "windows/amd64":
+		return "x86_64-unknown-windows-msvc"
+	default:
+		return "x86_64-unknown-linux-gnu"
+	}
 }
 
 type CjpmLock struct {
@@ -58,9 +99,15 @@ func (l *CjpmLock) GetAllDependencies() map[string]Dependency {
 	return result
 }
 
+type PackageRequires struct {
+	PackageOption map[string]string `json:"package_option,omitempty"`
+	PathOption    []string          `json:"path-option,omitempty"`
+}
+
 type ModuleConfig struct {
-	Name     string      `json:"name"`
-	Requires interface{} `json:"requires"`
+	Name            string           `json:"name"`
+	Requires        interface{}      `json:"requires,omitempty"`
+	PackageRequires *PackageRequires `json:"package_requires,omitempty"`
 }
 
 type DepRef struct {
