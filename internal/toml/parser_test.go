@@ -45,6 +45,75 @@ git-dep = { git = "https://github.com/example/repo.git", branch = "main" }
 	}
 }
 
+func TestParseCjpmToml_CentralRepo(t *testing.T) {
+	content := `
+[package]
+name = "test-project"
+
+[dependencies]
+dep1 = "1.0.0"
+dep2 = { version = "2.0.0" }
+dep3 = "[1.0.0, 3.0.0)"
+"org::dep4" = "4.0.0"
+`
+
+	parser := NewParser()
+	result, err := parser.ParseCjpmToml(content)
+	if err != nil {
+		t.Fatalf("ParseCjpmToml failed: %v", err)
+	}
+
+	dep1, ok := result.Dependencies["dep1"]
+	if !ok {
+		t.Fatal("dep1 not found")
+	}
+	if dep1.Type != "central" {
+		t.Errorf("expected dep1 type 'central', got '%s'", dep1.Type)
+	}
+	if dep1.VersionSpec != "1.0.0" {
+		t.Errorf("expected dep1 versionSpec '1.0.0', got '%s'", dep1.VersionSpec)
+	}
+	if dep1.ArtifactID != "dep1" {
+		t.Errorf("expected dep1 artifactId 'dep1', got '%s'", dep1.ArtifactID)
+	}
+
+	dep2, ok := result.Dependencies["dep2"]
+	if !ok {
+		t.Fatal("dep2 not found")
+	}
+	if dep2.Type != "central" {
+		t.Errorf("expected dep2 type 'central', got '%s'", dep2.Type)
+	}
+	if dep2.VersionSpec != "2.0.0" {
+		t.Errorf("expected dep2 versionSpec '2.0.0', got '%s'", dep2.VersionSpec)
+	}
+
+	dep3, ok := result.Dependencies["dep3"]
+	if !ok {
+		t.Fatal("dep3 not found")
+	}
+	if dep3.Type != "central" {
+		t.Errorf("expected dep3 type 'central', got '%s'", dep3.Type)
+	}
+	if dep3.VersionSpec != "[1.0.0, 3.0.0)" {
+		t.Errorf("expected dep3 versionSpec '[1.0.0, 3.0.0)', got '%s'", dep3.VersionSpec)
+	}
+
+	dep4, ok := result.Dependencies["org::dep4"]
+	if !ok {
+		t.Fatal("org::dep4 not found")
+	}
+	if dep4.Type != "central" {
+		t.Errorf("expected dep4 type 'central', got '%s'", dep4.Type)
+	}
+	if dep4.Org != "org" {
+		t.Errorf("expected dep4 org 'org', got '%s'", dep4.Org)
+	}
+	if dep4.ArtifactID != "dep4" {
+		t.Errorf("expected dep4 artifactId 'dep4', got '%s'", dep4.ArtifactID)
+	}
+}
+
 func TestParseCjpmLock(t *testing.T) {
 	content := `
 [dependencies]
@@ -67,6 +136,57 @@ git-dep = { commitId = "abc123def456" }
 	}
 	if gitDep.CommitID != "abc123def456" {
 		t.Errorf("expected commitId 'abc123def456', got '%s'", gitDep.CommitID)
+	}
+}
+
+func TestParseCjpmToml_LocalOverride(t *testing.T) {
+	content := `
+[package]
+name = "test-project"
+
+[dependencies]
+git-with-path = { git = "https://github.com/example/repo.git", path = "../local-repo" }
+central-with-path = { version = "1.0.0", path = "../local-lib" }
+`
+
+	parser := NewParser()
+	result, err := parser.ParseCjpmToml(content)
+	if err != nil {
+		t.Fatalf("ParseCjpmToml failed: %v", err)
+	}
+
+	gitDep, ok := result.Dependencies["git-with-path"]
+	if !ok {
+		t.Fatal("git-with-path not found")
+	}
+	if gitDep.Type != "path" {
+		t.Errorf("expected type 'path', got '%s'", gitDep.Type)
+	}
+	if gitDep.Path != "../local-repo" {
+		t.Errorf("expected path '../local-repo', got '%s'", gitDep.Path)
+	}
+	if gitDep.Git != "https://github.com/example/repo.git" {
+		t.Errorf("expected git to be preserved, got '%s'", gitDep.Git)
+	}
+	if !gitDep.HasLocalOverride() {
+		t.Error("expected HasLocalOverride to be true")
+	}
+
+	centralDep, ok := result.Dependencies["central-with-path"]
+	if !ok {
+		t.Fatal("central-with-path not found")
+	}
+	if centralDep.Type != "path" {
+		t.Errorf("expected type 'path', got '%s'", centralDep.Type)
+	}
+	if centralDep.Path != "../local-lib" {
+		t.Errorf("expected path '../local-lib', got '%s'", centralDep.Path)
+	}
+	if centralDep.VersionSpec != "1.0.0" {
+		t.Errorf("expected versionSpec to be preserved, got '%s'", centralDep.VersionSpec)
+	}
+	if !centralDep.HasLocalOverride() {
+		t.Error("expected HasLocalOverride to be true")
 	}
 }
 

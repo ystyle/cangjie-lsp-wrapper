@@ -1,16 +1,22 @@
 package types
 
-import "runtime"
+import (
+	"runtime"
+	"strings"
+)
 
 type Dependency struct {
-	Type       string `json:"type" toml:"-"`
-	Path       string `json:"path,omitempty" toml:"path"`
-	Git        string `json:"git,omitempty" toml:"git"`
-	Branch     string `json:"branch,omitempty" toml:"branch"`
-	Tag        string `json:"tag,omitempty" toml:"tag"`
-	CommitID   string `json:"commitId,omitempty" toml:"commitId"`
-	Version    string `json:"version,omitempty" toml:"version"`
-	OutputType string `json:"output-type,omitempty" toml:"output-type"`
+	Type        string `json:"type" toml:"-"`
+	Path        string `json:"path,omitempty" toml:"path"`
+	Git         string `json:"git,omitempty" toml:"git"`
+	Branch      string `json:"branch,omitempty" toml:"branch"`
+	Tag         string `json:"tag,omitempty" toml:"tag"`
+	CommitID    string `json:"commitId,omitempty" toml:"commitId"`
+	Version     string `json:"version,omitempty" toml:"version"`
+	OutputType  string `json:"output-type,omitempty" toml:"output-type"`
+	VersionSpec string `json:"versionSpec,omitempty" toml:"-"`
+	Org         string `json:"org,omitempty" toml:"-"`
+	ArtifactID  string `json:"artifactId,omitempty" toml:"-"`
 }
 
 func (d *Dependency) DeduceType() {
@@ -18,6 +24,26 @@ func (d *Dependency) DeduceType() {
 		d.Type = "path"
 	} else if d.Git != "" {
 		d.Type = "git"
+	} else if d.VersionSpec != "" || d.Version != "" {
+		d.Type = "central"
+	}
+}
+
+func (d *Dependency) IsCentral() bool {
+	return d.Type == "central"
+}
+
+func (d *Dependency) HasLocalOverride() bool {
+	return d.Path != "" && (d.Git != "" || d.VersionSpec != "" || d.Version != "")
+}
+
+func (d *Dependency) ParseName(name string) {
+	parts := strings.SplitN(name, "::", 2)
+	if len(parts) == 2 {
+		d.Org = parts[0]
+		d.ArtifactID = parts[1]
+	} else {
+		d.ArtifactID = name
 	}
 }
 
