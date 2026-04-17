@@ -88,7 +88,7 @@ type DependencyResolver struct {
 
 func NewDependencyResolver(homeDir string) *DependencyResolver {
 	cacheDir := filepath.Join(homeDir, ".cjpm")
-	repoDir := filepath.Join(cacheDir, "repository")
+	repoDir := filepath.Join(cacheDir, "repository", "source")
 	return &DependencyResolver{
 		parser:   NewCjpmParser(),
 		homeDir:  homeDir,
@@ -129,7 +129,15 @@ func (r *DependencyResolver) resolveRecursive(dir string, allModules map[string]
 
 	dependencies := MergeDependencies(cjpmToml, cjpmLock)
 
+	replace := cjpmToml.Replace
+
 	for name, dep := range dependencies {
+		if replaceDep, ok := replace[name]; ok {
+			replaceDep.ParseName(name)
+			replaceDep.DeduceType()
+			dep = replaceDep
+		}
+
 		depPath := r.GetDependencyPath(name, dep)
 		if depPath == "" {
 			continue
@@ -163,17 +171,16 @@ func (r *DependencyResolver) GetDependencyPath(name string, dep types.Dependency
 
 func (r *DependencyResolver) resolveCentralPath(dep types.Dependency) string {
 	org := dep.Org
-	artifact := dep.ArtifactID
 	if org == "" {
-		org = "_"
+		org = "default"
 	}
 
-	artifactDir := filepath.Join(r.repoDir, org, artifact)
-	if _, err := os.Stat(artifactDir); os.IsNotExist(err) {
+	orgDir := filepath.Join(r.repoDir, org)
+	if _, err := os.Stat(orgDir); os.IsNotExist(err) {
 		return ""
 	}
 
-	versions, err := r.listVersions(artifactDir)
+	versions, err := r.listVersions(orgDir, dep.ArtifactID)
 	if err != nil || len(versions) == 0 {
 		return ""
 	}
@@ -183,19 +190,22 @@ func (r *DependencyResolver) resolveCentralPath(dep types.Dependency) string {
 		return ""
 	}
 
-	return filepath.Join(artifactDir, matchedVersion)
+	artifactDirName := dep.ArtifactID + "-" + matchedVersion
+	return filepath.Join(orgDir, artifactDirName)
 }
 
-func (r *DependencyResolver) listVersions(artifactDir string) ([]string, error) {
-	entries, err := os.ReadDir(artifactDir)
+func (r *DependencyResolver) listVersions(orgDir string, artifactID string) ([]string, error) {
+	entries, err := os.ReadDir(orgDir)
 	if err != nil {
 		return nil, err
 	}
 
 	var versions []string
+	prefix := artifactID + "-"
 	for _, entry := range entries {
-		if entry.IsDir() {
-			versions = append(versions, entry.Name())
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), prefix) {
+			version := strings.TrimPrefix(entry.Name(), prefix)
+			versions = append(versions, version)
 		}
 	}
 
