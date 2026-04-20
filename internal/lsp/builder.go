@@ -50,8 +50,6 @@ func (b *ConfigBuilder) Build() (*types.LSPConfig, error) {
 		ConditionCompileOption:       []interface{}{},
 		SingleConditionCompileOption: []interface{}{},
 		ConditionCompilePaths:        []interface{}{},
-		TelemetryOption:              true,
-		ExtensionPath:                b.cjHome,
 	}
 
 	workspaceFolders := b.buildWorkspaceFolders()

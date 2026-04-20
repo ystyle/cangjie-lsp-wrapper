@@ -139,7 +139,7 @@ func (l *CjpmLock) GetAllDependencies() map[string]Dependency {
 
 type PackageRequires struct {
 	PackageOption map[string]string `json:"package_option,omitempty"`
-	PathOption    []string          `json:"path-option,omitempty"`
+	PathOption    []string          `json:"path_option,omitempty"`
 }
 
 type ModuleConfig struct {
@@ -163,8 +163,6 @@ type InitOptions struct {
 	ConditionCompileOption       interface{}             `json:"conditionCompileOption"`
 	SingleConditionCompileOption interface{}             `json:"singleConditionCompileOption"`
 	ConditionCompilePaths        interface{}             `json:"conditionCompilePaths"`
-	TelemetryOption              bool                    `json:"telemetryOption"`
-	ExtensionPath                string                  `json:"extensionPath"`
 }
 
 type EnvConfig struct {
