@@ -108,6 +108,18 @@ func getHostTarget() string {
 	}
 }
 
+func GetAllTargets() []string {
+	return []string{
+		"x86_64-unknown-linux-gnu",
+		"aarch64-unknown-linux-gnu",
+		"x86_64-apple-darwin",
+		"aarch64-apple-darwin",
+		"x86_64-w64-mingw32",
+		"aarch64-linux-ohos",
+		"x86_64-linux-ohos",
+	}
+}
+
 type CjpmLock struct {
 	Version      int64                 `toml:"version"`
 	Dependencies map[string]Dependency `toml:"dependencies"`
