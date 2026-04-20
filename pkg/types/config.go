@@ -132,6 +132,7 @@ type PackageRequires struct {
 
 type ModuleConfig struct {
 	Name            string           `json:"name"`
+	SrcPath         string           `json:"src_path,omitempty"`
 	Requires        interface{}      `json:"requires,omitempty"`
 	PackageRequires *PackageRequires `json:"package_requires,omitempty"`
 }

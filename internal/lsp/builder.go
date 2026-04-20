@@ -78,12 +78,23 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 			packageName = "default"
 		}
 
+		srcDir := cjpmToml.Package.SrcDir
+		if srcDir == "" {
+			srcDir = "src"
+		}
+		srcPath := filepath.Join(modulePath, srcDir)
+
 		requires := b.buildRequiresFromModule(cjpmToml, modulePath)
 		binDeps := cjpmToml.GetBinDependencies()
 
 		moduleURI := utils.FilePathToURI(modulePath)
 		if b.isWindows {
 			moduleURI = utils.EscapeWindowsURI(moduleURI)
+		}
+
+		srcPathURI := utils.FilePathToURI(srcPath)
+		if b.isWindows {
+			srcPathURI = utils.EscapeWindowsURI(srcPathURI)
 		}
 
 		var reqs interface{}
@@ -97,6 +108,7 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 
 		multiModule[moduleURI] = types.ModuleConfig{
 			Name:            packageName,
+			SrcPath:         srcPathURI,
 			Requires:        reqs,
 			PackageRequires: packageRequires,
 		}
