@@ -197,3 +197,69 @@ func TestParseCjpmTomlEmpty(t *testing.T) {
 		t.Errorf("expected ErrEmptyContent, got %v", err)
 	}
 }
+
+func TestParseCjpmToml_TargetBinDependencies(t *testing.T) {
+	content := `
+[package]
+name = "test-project"
+
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+path-option = ["${CANGJIE_STDX_PATH}"]
+package-option = { stdx = "1.0.0" }
+
+[target.aarch64-unknown-linux-gnu]
+compile-option = "-O2"
+
+[target.aarch64-unknown-linux-gnu.bin-dependencies]
+path-option = ["${CANGJIE_STDX_PATH}"]
+`
+
+	parser := NewParser()
+	result, err := parser.ParseCjpmToml(content)
+	if err != nil {
+		t.Fatalf("ParseCjpmToml failed: %v", err)
+	}
+
+	if len(result.Targets) < 2 {
+		t.Errorf("expected at least 2 targets, got %d", len(result.Targets))
+	}
+
+	target1, ok := result.Targets["x86_64-unknown-linux-gnu"]
+	if !ok {
+		t.Fatal("target x86_64-unknown-linux-gnu not found")
+	}
+	if target1.BinDependencies == nil {
+		t.Fatal("bin-dependencies not found in target")
+	}
+	if len(target1.BinDependencies.PathOption) != 1 {
+		t.Errorf("expected 1 path-option, got %d", len(target1.BinDependencies.PathOption))
+	}
+	if target1.BinDependencies.PathOption[0] != "${CANGJIE_STDX_PATH}" {
+		t.Errorf("expected path-option '${CANGJIE_STDX_PATH}', got '%s'", target1.BinDependencies.PathOption[0])
+	}
+	if len(target1.BinDependencies.PackageOption) != 1 {
+		t.Errorf("expected 1 package-option, got %d", len(target1.BinDependencies.PackageOption))
+	}
+	if target1.BinDependencies.PackageOption["stdx"] != "1.0.0" {
+		t.Errorf("expected package-option stdx='1.0.0', got '%s'", target1.BinDependencies.PackageOption["stdx"])
+	}
+
+	target2, ok := result.Targets["aarch64-unknown-linux-gnu"]
+	if !ok {
+		t.Fatal("target aarch64-unknown-linux-gnu not found")
+	}
+	if target2.CompileOption != "-O2" {
+		t.Errorf("expected compile-option '-O2', got '%s'", target2.CompileOption)
+	}
+	if target2.BinDependencies == nil {
+		t.Fatal("bin-dependencies not found in target2")
+	}
+	if target2.BinDependencies.PathOption[0] != "${CANGJIE_STDX_PATH}" {
+		t.Errorf("expected path-option '${CANGJIE_STDX_PATH}', got '%s'", target2.BinDependencies.PathOption[0])
+	}
+
+	binDeps := result.GetBinDependencies()
+	if binDeps == nil {
+		t.Fatal("GetBinDependencies returned nil")
+	}
+}

@@ -102,7 +102,7 @@ func getHostTarget() string {
 	case "darwin/arm64":
 		return "aarch64-apple-darwin"
 	case "windows/amd64":
-		return "x86_64-unknown-windows-msvc"
+		return "x86_64-w64-mingw32"
 	default:
 		return "x86_64-unknown-linux-gnu"
 	}
