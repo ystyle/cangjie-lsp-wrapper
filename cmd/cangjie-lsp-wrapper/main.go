@@ -305,7 +305,30 @@ func buildEnv(cjHome string) []string {
 	homeDir, _ := os.UserHomeDir()
 	pathDelim := string(os.PathListSeparator)
 
-	runtimeLibPath := filepath.Join(cjHome, "runtime", "lib", "linux_x86_64_llvm")
+	osName := "linux"
+	arch := "x86_64"
+	switch runtime.GOOS {
+	case "windows":
+		osName = "windows"
+	case "darwin":
+		osName = "macos"
+	}
+
+	if runtime.GOARCH == "arm64" {
+		arch = "aarch64"
+	}
+
+	runtimeTypes := []string{"llvm", "cjnative"}
+	runtimeLibPaths := []string{}
+
+	for _, runtimeType := range runtimeTypes {
+		libPath := filepath.Join(cjHome, "runtime", "lib", fmt.Sprintf("%s_%s_%s", osName, arch, runtimeType))
+		if _, err := os.Stat(libPath); err == nil {
+			runtimeLibPaths = append(runtimeLibPaths, libPath)
+		}
+	}
+
+	runtimeLibPaths = append(runtimeLibPaths, filepath.Join(cjHome, "tools", "lib"))
 
 	return []string{
 		fmt.Sprintf("CANGJIE_HOME=%s", cjHome),
@@ -315,14 +338,8 @@ func buildEnv(cjHome string) []string {
 			filepath.Join(cjHome, "debugger", "bin"),
 			filepath.Join(homeDir, ".cjpm", "bin"),
 		}, pathDelim)),
-		fmt.Sprintf("CANGJIE_LD_LIBRARY_PATH=%s", joinPaths([]string{
-			runtimeLibPath,
-			filepath.Join(cjHome, "tools", "lib"),
-		}, pathDelim)),
-		fmt.Sprintf("LD_LIBRARY_PATH=%s", joinPaths([]string{
-			runtimeLibPath,
-			filepath.Join(cjHome, "tools", "lib"),
-		}, pathDelim)),
+		fmt.Sprintf("CANGJIE_LD_LIBRARY_PATH=%s", joinPaths(runtimeLibPaths, pathDelim)),
+		fmt.Sprintf("LD_LIBRARY_PATH=%s", joinPaths(runtimeLibPaths, pathDelim)),
 	}
 }
 

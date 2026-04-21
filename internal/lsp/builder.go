@@ -45,7 +45,7 @@ func (b *ConfigBuilder) Build() (*types.LSPConfig, error) {
 	initOpts := types.InitOptions{
 		MultiModuleOption:            multiModuleOption,
 		ModulesHomeOption:            b.cjHome,
-		StdLibPathOption:             "/nonexistent/lib",
+		StdLibPathOption:             filepath.Join(b.cjHome, "lib"),
 		TargetLib:                    filepath.Join(b.rootDir, "target", "release"),
 		ConditionCompileOption:       map[string]interface{}{},
 		SingleConditionCompileOption: map[string]interface{}{},

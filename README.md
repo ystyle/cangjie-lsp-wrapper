@@ -18,6 +18,10 @@ export CANGJIE_HOME=/path/to/cangjie-sdk
 
 ### Neovim 配置
 
+推荐使用 [cangjie-nvim](https://atomgit.com/ystyle/cangjie-nvim) 插件，已集成此 wrapper。
+
+手动配置：
+
 ```lua
 vim.filetype.add({ extension = { cj = "Cangjie" } })
 
