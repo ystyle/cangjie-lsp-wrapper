@@ -19,13 +19,16 @@ var version = "dev"
 
 var logger *log.Logger
 
+var logDir string
+
 func init() {
 	logPath := os.Getenv("CANGJIE_LSP_LOG")
 	if logPath == "" {
 		homeDir, _ := os.UserHomeDir()
 		logPath = filepath.Join(homeDir, ".cache", "cangjie-lsp-wrapper", "wrapper.log")
 	}
-	os.MkdirAll(filepath.Dir(logPath), 0755)
+	logDir = filepath.Dir(logPath)
+	os.MkdirAll(logDir, 0755)
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		f = os.NewFile(0, os.DevNull)
@@ -55,7 +58,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	args := append([]string{"--enable-log=true", "--log-path=" + cjHome}, os.Args[1:]...)
+	args := append([]string{"--enable-log=true", "--log-path=" + logDir}, os.Args[1:]...)
 	cmd := exec.Command(lspServerPath, args...)
 	cmd.Env = mergeEnv(os.Environ(), buildEnv(cjHome))
 
