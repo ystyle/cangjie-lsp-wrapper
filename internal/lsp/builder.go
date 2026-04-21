@@ -42,14 +42,19 @@ func (b *ConfigBuilder) Build() (*types.LSPConfig, error) {
 
 	multiModuleOption := b.buildMultiModuleOptionRecursive(allModules)
 
+	realCjHome := b.getRealSdkPath()
+	stdLibPath := b.getStdLibPath(realCjHome)
+
 	initOpts := types.InitOptions{
 		MultiModuleOption:            multiModuleOption,
-		ModulesHomeOption:            b.cjHome,
-		StdLibPathOption:             b.cjHome,
+		ModulesHomeOption:            realCjHome,
+		StdLibPathOption:             stdLibPath,
 		TargetLib:                    filepath.Join(b.rootDir, "target", "release"),
-		ConditionCompileOption:       []interface{}{},
-		SingleConditionCompileOption: []interface{}{},
+		ConditionCompileOption:       map[string]interface{}{},
+		SingleConditionCompileOption: map[string]interface{}{},
 		ConditionCompilePaths:        []interface{}{},
+		TelemetryOption:              true,
+		ExtensionPath:                b.cjHome,
 	}
 
 	workspaceFolders := b.buildWorkspaceFolders()
@@ -67,6 +72,48 @@ func (b *ConfigBuilder) Build() (*types.LSPConfig, error) {
 	}, nil
 }
 
+func (b *ConfigBuilder) getRealSdkPath() string {
+	realPath, err := filepath.EvalSymlinks(b.cjHome)
+	if err != nil {
+		return b.cjHome
+	}
+	return realPath
+}
+
+func (b *ConfigBuilder) getStdLibPath(cjHome string) string {
+	baseTarget := b.getBaseTarget()
+	modulesDir := filepath.Join(cjHome, "modules")
+
+	stdPath := filepath.Join(modulesDir, baseTarget+"_cjnative", "std")
+	if _, err := os.Stat(stdPath); err == nil {
+		return stdPath
+	}
+
+	stdPath = filepath.Join(modulesDir, baseTarget+"_llvm", "std")
+	if _, err := os.Stat(stdPath); err == nil {
+		return stdPath
+	}
+
+	return cjHome
+}
+
+func (b *ConfigBuilder) getBaseTarget() string {
+	switch runtime.GOOS + "/" + runtime.GOARCH {
+	case "linux/amd64":
+		return "linux_x86_64"
+	case "linux/arm64":
+		return "linux_aarch64"
+	case "darwin/amd64":
+		return "macos_x86_64"
+	case "darwin/arm64":
+		return "macos_aarch64"
+	case "windows/amd64":
+		return "windows_x86_64"
+	default:
+		return "linux_x86_64"
+	}
+}
+
 func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*types.CjpmToml) map[string]types.ModuleConfig {
 	multiModule := make(map[string]types.ModuleConfig)
 
@@ -75,25 +122,32 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 		if packageName == "" {
 			packageName = "default"
 		}
-
-		srcDir := cjpmToml.Package.SrcDir
-		if srcDir == "" {
-			srcDir = "src"
+		if cjpmToml.Package.Organization != "" {
+			packageName = cjpmToml.Package.Organization + "::" + packageName
 		}
-		srcPath := filepath.Join(modulePath, srcDir)
-
-		requires := b.buildRequiresFromModule(cjpmToml, modulePath)
-		binDeps := cjpmToml.GetBinDependencies()
 
 		moduleURI := utils.FilePathToURI(modulePath)
 		if b.isWindows {
 			moduleURI = utils.EscapeWindowsURI(moduleURI)
 		}
 
-		srcPathURI := utils.FilePathToURI(srcPath)
-		if b.isWindows {
-			srcPathURI = utils.EscapeWindowsURI(srcPathURI)
+		isRootModule := modulePath == b.rootDir
+
+		var srcPathURI string
+		if isRootModule {
+			srcDir := cjpmToml.Package.SrcDir
+			if srcDir == "" {
+				srcDir = "src"
+			}
+			srcPath := filepath.Join(modulePath, srcDir)
+			srcPathURI = utils.FilePathToURI(srcPath)
+			if b.isWindows {
+				srcPathURI = utils.EscapeWindowsURI(srcPathURI)
+			}
 		}
+
+		requires := b.buildRequiresFromModule(cjpmToml, modulePath)
+		binDeps := cjpmToml.GetBinDependencies()
 
 		var reqs interface{}
 		if len(requires) > 0 {
@@ -104,12 +158,18 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 
 		packageRequires := b.buildPackageRequires(binDeps)
 
-		multiModule[moduleURI] = types.ModuleConfig{
+		config := types.ModuleConfig{
 			Name:            packageName,
-			SrcPath:         srcPathURI,
+			Combined:        false,
 			Requires:        reqs,
 			PackageRequires: packageRequires,
 		}
+
+		if isRootModule {
+			config.SrcPath = srcPathURI
+		}
+
+		multiModule[moduleURI] = config
 	}
 
 	return multiModule
@@ -202,19 +262,26 @@ func (b *ConfigBuilder) buildPackageRequires(binDeps *types.BinDependencies) *ty
 		return nil
 	}
 
+	hasPathOption := binDeps.PathOption != nil && len(binDeps.PathOption) > 0
+	hasPackageOption := binDeps.PackageOption != nil && len(binDeps.PackageOption) > 0
+
+	if !hasPathOption && !hasPackageOption {
+		return nil
+	}
+
 	pkgRequires := &types.PackageRequires{
 		PackageOption: make(map[string]string),
 		PathOption:    []string{},
 	}
 
-	if binDeps.PathOption != nil {
+	if hasPathOption {
 		for _, path := range binDeps.PathOption {
 			uri := b.buildBinDepPathURI(path)
 			pkgRequires.PathOption = append(pkgRequires.PathOption, uri)
 		}
 	}
 
-	if binDeps.PackageOption != nil {
+	if hasPackageOption {
 		pkgRequires.PackageOption = binDeps.PackageOption
 	}
 
@@ -222,15 +289,35 @@ func (b *ConfigBuilder) buildPackageRequires(binDeps *types.BinDependencies) *ty
 }
 
 func (b *ConfigBuilder) buildBinDepPathURI(path string) string {
-	absPath := path
-	if !filepath.IsAbs(absPath) {
-		absPath = filepath.Join(b.rootDir, path)
-	}
-	uri := utils.FilePathToURI(absPath)
+	expandedPath := b.expandEnvVar(path)
+	uri := utils.FilePathToURI(expandedPath)
 	if b.isWindows {
 		uri = utils.EscapeWindowsURI(uri)
 	}
 	return uri
+}
+
+func (b *ConfigBuilder) expandEnvVar(path string) string {
+	result := path
+	maxIterations := 10
+	for i := 0; i < maxIterations; i++ {
+		start := strings.Index(result, "${")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(result[start:], "}")
+		if end == -1 {
+			break
+		}
+		end += start
+		envName := result[start+2 : end]
+		envValue := os.Getenv(envName)
+		if envValue == "" {
+			break
+		}
+		result = result[:start] + envValue + result[end+1:]
+	}
+	return result
 }
 
 func (b *ConfigBuilder) buildWorkspaceFolders() []types.WorkspaceFolder {

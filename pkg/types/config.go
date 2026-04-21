@@ -50,8 +50,9 @@ func (d *Dependency) ParseName(name string) {
 type Package struct {
 	Name                  string                 `toml:"name"`
 	Version               string                 `toml:"version,omitempty"`
-	CjcVersion            string                 `toml:"cjc-version,omitempty"`
+	Organization          string                 `toml:"organization,omitempty"`
 	Description           string                 `toml:"description,omitempty"`
+	CjcVersion            string                 `toml:"cjc-version,omitempty"`
 	CompileOption         string                 `toml:"compile-option,omitempty"`
 	OverrideCompileOption string                 `toml:"override-compile-option,omitempty"`
 	LinkOption            string                 `toml:"link-option,omitempty"`
@@ -84,14 +85,14 @@ type CjpmToml struct {
 }
 
 func (c *CjpmToml) GetBinDependencies() *BinDependencies {
-	hostTarget := getHostTarget()
+	hostTarget := GetHostTarget()
 	if target, ok := c.Targets[hostTarget]; ok && target.BinDependencies != nil {
 		return target.BinDependencies
 	}
 	return nil
 }
 
-func getHostTarget() string {
+func GetHostTarget() string {
 	switch runtime.GOOS + "/" + runtime.GOARCH {
 	case "linux/amd64":
 		return "x86_64-unknown-linux-gnu"
@@ -138,13 +139,14 @@ func (l *CjpmLock) GetAllDependencies() map[string]Dependency {
 }
 
 type PackageRequires struct {
-	PackageOption map[string]string `json:"package_option,omitempty"`
-	PathOption    []string          `json:"path_option,omitempty"`
+	PackageOption map[string]string `json:"package_option"`
+	PathOption    []string          `json:"path_option"`
 }
 
 type ModuleConfig struct {
 	Name            string           `json:"name"`
 	SrcPath         string           `json:"src_path,omitempty"`
+	Combined        bool             `json:"combined"`
 	Requires        interface{}      `json:"requires,omitempty"`
 	PackageRequires *PackageRequires `json:"package_requires,omitempty"`
 }
@@ -163,6 +165,8 @@ type InitOptions struct {
 	ConditionCompileOption       interface{}             `json:"conditionCompileOption"`
 	SingleConditionCompileOption interface{}             `json:"singleConditionCompileOption"`
 	ConditionCompilePaths        interface{}             `json:"conditionCompilePaths"`
+	TelemetryOption              bool                    `json:"telemetryOption"`
+	ExtensionPath                string                  `json:"extensionPath"`
 }
 
 type EnvConfig struct {
