@@ -42,13 +42,10 @@ func (b *ConfigBuilder) Build() (*types.LSPConfig, error) {
 
 	multiModuleOption := b.buildMultiModuleOptionRecursive(allModules)
 
-	realCjHome := b.getRealSdkPath()
-	stdLibPath := b.getStdLibPath(realCjHome)
-
 	initOpts := types.InitOptions{
 		MultiModuleOption:            multiModuleOption,
-		ModulesHomeOption:            realCjHome,
-		StdLibPathOption:             stdLibPath,
+		ModulesHomeOption:            b.cjHome,
+		StdLibPathOption:             "/nonexistent/lib",
 		TargetLib:                    filepath.Join(b.rootDir, "target", "release"),
 		ConditionCompileOption:       map[string]interface{}{},
 		SingleConditionCompileOption: map[string]interface{}{},
@@ -70,48 +67,6 @@ func (b *ConfigBuilder) Build() (*types.LSPConfig, error) {
 		RootURI:          rootURI,
 		RootPath:         b.rootDir,
 	}, nil
-}
-
-func (b *ConfigBuilder) getRealSdkPath() string {
-	realPath, err := filepath.EvalSymlinks(b.cjHome)
-	if err != nil {
-		return b.cjHome
-	}
-	return realPath
-}
-
-func (b *ConfigBuilder) getStdLibPath(cjHome string) string {
-	baseTarget := b.getBaseTarget()
-	modulesDir := filepath.Join(cjHome, "modules")
-
-	stdPath := filepath.Join(modulesDir, baseTarget+"_cjnative", "std")
-	if _, err := os.Stat(stdPath); err == nil {
-		return stdPath
-	}
-
-	stdPath = filepath.Join(modulesDir, baseTarget+"_llvm", "std")
-	if _, err := os.Stat(stdPath); err == nil {
-		return stdPath
-	}
-
-	return cjHome
-}
-
-func (b *ConfigBuilder) getBaseTarget() string {
-	switch runtime.GOOS + "/" + runtime.GOARCH {
-	case "linux/amd64":
-		return "linux_x86_64"
-	case "linux/arm64":
-		return "linux_aarch64"
-	case "darwin/amd64":
-		return "macos_x86_64"
-	case "darwin/arm64":
-		return "macos_aarch64"
-	case "windows/amd64":
-		return "windows_x86_64"
-	default:
-		return "linux_x86_64"
-	}
 }
 
 func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*types.CjpmToml) map[string]types.ModuleConfig {
