@@ -315,7 +315,7 @@ func TestBuildWorkspaceFolders(t *testing.T) {
 func TestGetLSPServerPath(t *testing.T) {
 	b := newTestBuilder()
 	path := b.GetLSPServerPath()
-	expected := filepath.ToSlash(filepath.Join("/test/cjhome", "tools", "bin", "LSPServer"))
+	expected := filepath.Join("/test/cjhome", "tools", "bin", "LSPServer")
 	if runtime.GOOS == "windows" {
 		expected += ".exe"
 	}
@@ -377,6 +377,9 @@ func TestBuildRequiresFromModule(t *testing.T) {
 	})
 
 	t.Run("absolute path dependency", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("unix absolute path not supported on windows in test")
+		}
 		cjpm := &types.CjpmToml{
 			Dependencies: map[string]types.Dependency{
 				"my-dep": {Type: "path", Path: "/absolute/path"},
