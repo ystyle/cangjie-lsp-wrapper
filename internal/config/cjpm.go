@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/Masterminds/semver/v3"
 )
 
 type CjpmParser struct {
@@ -244,22 +246,15 @@ func (r *DependencyResolver) findMatchingVersion(versionSpec string, versions []
 }
 
 func compareVersions(a, b string) int {
-	partsA := strings.Split(a, ".")
-	partsB := strings.Split(b, ".")
-
-	for i := 0; i < len(partsA) && i < len(partsB); i++ {
-		if partsA[i] < partsB[i] {
-			return 1
-		} else if partsA[i] > partsB[i] {
+	va, errA := semver.NewVersion(a)
+	vb, errB := semver.NewVersion(b)
+	if errA != nil || errB != nil {
+		if strings.Compare(a, b) > 0 {
 			return -1
+		} else if strings.Compare(a, b) < 0 {
+			return 1
 		}
+		return 0
 	}
-
-	if len(partsA) < len(partsB) {
-		return 1
-	} else if len(partsA) > len(partsB) {
-		return -1
-	}
-
-	return 0
+	return va.Compare(vb)
 }

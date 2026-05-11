@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"cangjie-lsp-wrapper/internal/lsp"
+	"cangjie-lsp-wrapper/pkg/utils"
 )
 
 var version = "dev"
@@ -242,13 +243,13 @@ func (p *LSPProxy) extractRootDir(req map[string]interface{}) string {
 	if wf, ok := params["workspaceFolders"].([]interface{}); ok && len(wf) > 0 {
 		if folder, ok := wf[0].(map[string]interface{}); ok {
 			if uri, ok := folder["uri"].(string); ok {
-				return uriToPath(uri)
+				return utils.URIToFilePath(uri)
 			}
 		}
 	}
 
 	if rootUri, ok := params["rootUri"].(string); ok {
-		return uriToPath(rootUri)
+		return utils.URIToFilePath(rootUri)
 	}
 
 	if rootPath, ok := params["rootPath"].(string); ok {
@@ -256,14 +257,6 @@ func (p *LSPProxy) extractRootDir(req map[string]interface{}) string {
 	}
 
 	return ""
-}
-
-func uriToPath(uri string) string {
-	if !strings.HasPrefix(uri, "file://") {
-		return uri
-	}
-	path := uri[7:]
-	return path
 }
 
 func readLSPMessage(reader *bufio.Reader) ([]byte, error) {
