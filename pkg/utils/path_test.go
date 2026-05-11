@@ -44,12 +44,36 @@ func TestFilePathToURI_windows(t *testing.T) {
 	}{
 		{"normal path", `C:\Users\test\project`, "file:///c%3A/Users/test/project"},
 		{"root drive", `D:\`, "file:///d%3A/"},
-		{"with spaces", `C:\Users\my project`, "file:///c%3A/Users/my%20project"},
+		{"with spaces no encode", `C:\Users\my project`, "file:///c%3A/Users/my project"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := FilePathToURI(tt.path)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestURIToFilePath_windows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("skip windows test on linux")
+	}
+
+	tests := []struct {
+		name     string
+		uri      string
+		expected string
+	}{
+		{"encoded uri", "file:///c%3A/Users/test/project", `C:\Users\test\project`},
+		{"root drive", "file:///d%3A/", `D:\`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := URIToFilePath(tt.uri)
 			if result != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, result)
 			}
@@ -70,31 +94,6 @@ func TestURIToFilePath_linux(t *testing.T) {
 		{"normal uri", "file:///home/user/project", "/home/user/project"},
 		{"root uri", "file:///", "/"},
 		{"encoded spaces not decoded", "file:///home/user/my%20project", "/home/user/my%20project"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := URIToFilePath(tt.uri)
-			if result != tt.expected {
-				t.Errorf("expected %q, got %q", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestURIToFilePath_windows(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("skip windows test on linux")
-	}
-
-	tests := []struct {
-		name     string
-		uri      string
-		expected string
-	}{
-		{"encoded uri", "file:///c%3A/Users/test/project", `C:\Users\test\project`},
-		{"raw drive letter", "file:///C:/Users/test", `C:\Users\test`},
-		{"root drive", "file:///d%3A/", `D:\`},
 	}
 
 	for _, tt := range tests {

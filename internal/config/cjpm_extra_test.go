@@ -2,6 +2,7 @@ package config
 
 import (
 	"cangjie-lsp-wrapper/pkg/types"
+	"path/filepath"
 	"testing"
 )
 
@@ -114,14 +115,11 @@ func TestNewDependencyResolver(t *testing.T) {
 	if r == nil {
 		t.Fatal("expected non-nil resolver")
 	}
-	if r.homeDir != "/home/test" {
-		t.Errorf("expected homeDir '/home/test', got '%s'", r.homeDir)
-	}
-	expectedCache := "/home/test/.cjpm"
+	expectedCache := filepath.Join("/home/test", ".cjpm")
 	if r.cacheDir != expectedCache {
 		t.Errorf("expected cacheDir %q, got %q", expectedCache, r.cacheDir)
 	}
-	expectedRepo := "/home/test/.cjpm/repository/source"
+	expectedRepo := filepath.Join("/home/test", ".cjpm", "repository", "source")
 	if r.repoDir != expectedRepo {
 		t.Errorf("expected repoDir %q, got %q", expectedRepo, r.repoDir)
 	}

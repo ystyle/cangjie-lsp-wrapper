@@ -34,6 +34,9 @@ func URIToFilePath(uri string) string {
 	path := uri[7:]
 
 	if runtime.GOOS == "windows" {
+		if strings.HasPrefix(path, "/") {
+			path = path[1:]
+		}
 		if strings.Contains(path, "%3A") {
 			path = strings.ReplaceAll(path, "%3A", ":")
 			path = strings.ToUpper(string(path[0])) + path[1:]

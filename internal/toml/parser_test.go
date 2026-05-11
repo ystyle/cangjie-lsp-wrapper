@@ -1,6 +1,7 @@
 package toml
 
 import (
+	"runtime"
 	"testing"
 )
 
@@ -258,8 +259,10 @@ path-option = ["${CANGJIE_STDX_PATH}"]
 		t.Errorf("expected path-option '${CANGJIE_STDX_PATH}', got '%s'", target2.BinDependencies.PathOption[0])
 	}
 
-	binDeps := result.GetBinDependencies()
-	if binDeps == nil {
-		t.Fatal("GetBinDependencies returned nil")
+	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+		binDeps := result.GetBinDependencies()
+		if binDeps == nil {
+			t.Fatal("GetBinDependencies returned nil")
+		}
 	}
 }

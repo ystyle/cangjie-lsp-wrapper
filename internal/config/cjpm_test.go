@@ -4,11 +4,15 @@ import (
 	"cangjie-lsp-wrapper/internal/toml"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestParseKuxCj(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skip integration test on windows")
+	}
 	rootDir := "/home/ystyle/Code/CangJie/kux-cj"
 
 	parser := NewCjpmParser()

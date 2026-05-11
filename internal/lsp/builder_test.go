@@ -3,6 +3,7 @@ package lsp
 import (
 	"cangjie-lsp-wrapper/internal/config"
 	"cangjie-lsp-wrapper/pkg/types"
+	"cangjie-lsp-wrapper/pkg/utils"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +19,14 @@ func newTestBuilder() *ConfigBuilder {
 		homeDir:   homeDir,
 		resolver:  config.NewDependencyResolver(homeDir),
 	}
+}
+
+func moduleURI(path string) string {
+	uri := utils.FilePathToURI(path)
+	if runtime.GOOS == "windows" {
+		uri = utils.EscapeWindowsURI(uri)
+	}
+	return uri
 }
 
 func TestNewConfigBuilder(t *testing.T) {
@@ -70,10 +79,7 @@ name = "local-dep"
 		t.Errorf("expected ModulesHomeOption %q, got %q", cjHome, cfg.InitOptions.ModulesHomeOption)
 	}
 
-	rootURI := "file://" + rootDir
-	if runtime.GOOS == "windows" {
-		rootURI = "file:///" + filepath.VolumeName(rootDir) + "%3A" + rootDir[2:]
-	}
+	rootURI := moduleURI(rootDir)
 	if cfg.InitOptions.ExtensionPath != cjHome {
 		t.Errorf("expected ExtensionPath %q, got %q", cjHome, cfg.InitOptions.ExtensionPath)
 	}
@@ -96,7 +102,7 @@ func TestBuildMultiModuleOption(t *testing.T) {
 		t.Fatalf("expected 1 module, got %d", len(result))
 	}
 
-	mod, ok := result["file:///test/project"]
+	mod, ok := result[moduleURI("/test/project")]
 	if !ok {
 		t.Fatal("root module not found")
 	}
@@ -121,7 +127,7 @@ func TestBuildMultiModuleOptionWithOrg(t *testing.T) {
 	}
 
 	result := b.buildMultiModuleOptionRecursive(allModules)
-	mod := result["file:///test/project"]
+	mod := result[moduleURI("/test/project")]
 	if mod.Name != "ystyle::my-lib" {
 		t.Errorf("expected 'ystyle::my-lib', got '%s'", mod.Name)
 	}
@@ -140,9 +146,10 @@ func TestBuildMultiModuleOptionWithSrcPath(t *testing.T) {
 	}
 
 	result := b.buildMultiModuleOptionRecursive(allModules)
-	mod := result["file:///test/project"]
-	if mod.SrcPath != "file:///test/project/src" {
-		t.Errorf("expected src_path 'file:///test/project/src', got '%s'", mod.SrcPath)
+	mod := result[moduleURI("/test/project")]
+	expectedSrcPath := moduleURI("/test/project/src")
+	if mod.SrcPath != expectedSrcPath {
+		t.Errorf("expected src_path %q, got %q", expectedSrcPath, mod.SrcPath)
 	}
 }
 
@@ -167,12 +174,12 @@ func TestBuildMultiModuleOptionNonRoot(t *testing.T) {
 		t.Fatalf("expected 2 modules, got %d", len(result))
 	}
 
-	rootMod := result["file:///test/project"]
+	rootMod := result[moduleURI("/test/project")]
 	if rootMod.SrcPath == "" {
 		t.Error("root module should have src_path")
 	}
 
-	depMod := result["file:///test/dep"]
+	depMod := result[moduleURI("/test/dep")]
 	if depMod.SrcPath != "" {
 		t.Error("non-root module should not have src_path")
 	}
@@ -188,7 +195,7 @@ func TestBuildMultiModuleOptionEmptyName(t *testing.T) {
 	}
 
 	result := b.buildMultiModuleOptionRecursive(allModules)
-	mod := result["file:///test/project"]
+	mod := result[moduleURI("/test/project")]
 	if mod.Name != "default" {
 		t.Errorf("expected 'default' for empty name, got '%s'", mod.Name)
 	}
@@ -215,10 +222,7 @@ func TestBuildPackageRequires(t *testing.T) {
 		if len(result.PathOption) != 1 {
 			t.Fatalf("expected 1 path option, got %d", len(result.PathOption))
 		}
-		expectedURI := "file:///usr/lib/cangjie/stdx"
-		if runtime.GOOS == "windows" {
-			expectedURI = "file:///" + filepath.VolumeName("/usr") + "%3A" + "/usr/lib/cangjie/stdx"[2:]
-		}
+		expectedURI := moduleURI("/usr/lib/cangjie/stdx")
 		if result.PathOption[0] != expectedURI {
 			t.Errorf("expected %q, got %q", expectedURI, result.PathOption[0])
 		}
@@ -299,10 +303,7 @@ func TestBuildWorkspaceFolders(t *testing.T) {
 		t.Fatalf("expected 1 folder, got %d", len(folders))
 	}
 
-	expectedURI := "file:///test/project"
-	if runtime.GOOS == "windows" {
-		expectedURI = "file:///" + filepath.VolumeName("/test") + "%3A" + "/test/project"[2:]
-	}
+	expectedURI := moduleURI("/test/project")
 	if folders[0].URI != expectedURI {
 		t.Errorf("expected URI %q, got %q", expectedURI, folders[0].URI)
 	}
@@ -314,7 +315,7 @@ func TestBuildWorkspaceFolders(t *testing.T) {
 func TestGetLSPServerPath(t *testing.T) {
 	b := newTestBuilder()
 	path := b.GetLSPServerPath()
-	expected := "/test/cjhome/tools/bin/LSPServer"
+	expected := filepath.ToSlash(filepath.Join("/test/cjhome", "tools", "bin", "LSPServer"))
 	if runtime.GOOS == "windows" {
 		expected += ".exe"
 	}
@@ -369,10 +370,7 @@ func TestBuildRequiresFromModule(t *testing.T) {
 		if !ok {
 			t.Fatal("my-dep not found")
 		}
-		expectedPath := "file:///test/module/subdir"
-		if runtime.GOOS == "windows" {
-			expectedPath = "file:///" + filepath.VolumeName("/test/module/subdir") + "%3A" + "/test/module/subdir"[2:]
-		}
+		expectedPath := moduleURI("/test/module/subdir")
 		if dep.Path != expectedPath {
 			t.Errorf("expected path %q, got %q", expectedPath, dep.Path)
 		}
@@ -389,10 +387,7 @@ func TestBuildRequiresFromModule(t *testing.T) {
 		if !ok {
 			t.Fatal("my-dep not found")
 		}
-		expectedPath := "file:///absolute/path"
-		if runtime.GOOS == "windows" {
-			expectedPath = "file:///" + filepath.VolumeName("/absolute/path") + "%3A" + "/absolute/path"[2:]
-		}
+		expectedPath := moduleURI("/absolute/path")
 		if dep.Path != expectedPath {
 			t.Errorf("expected path %q, got %q", expectedPath, dep.Path)
 		}
@@ -422,10 +417,7 @@ func TestBuildRequiresFromModuleWithReplace(t *testing.T) {
 	if dep.Git != "" {
 		t.Error("replaced dep should have no git field")
 	}
-	expectedPath := "file:///test/module/local"
-	if runtime.GOOS == "windows" {
-		expectedPath = "file:///" + filepath.VolumeName("/test/module/local") + "%3A" + "/test/module/local"[2:]
-	}
+	expectedPath := moduleURI("/test/module/local")
 	if dep.Path != expectedPath {
 		t.Errorf("expected path %q, got %q", expectedPath, dep.Path)
 	}
