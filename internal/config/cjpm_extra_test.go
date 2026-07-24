@@ -56,8 +56,11 @@ func TestMergeDependencies_lockNotInToml(t *testing.T) {
 	}
 
 	result := MergeDependencies(cjpm, lock)
-	if len(result) != 1 {
-		t.Errorf("expected 1 dep (lock-only should be skipped), got %d", len(result))
+	if len(result) != 2 {
+		t.Errorf("expected 2 deps (including lock-only transitive dep), got %d", len(result))
+	}
+	if _, ok := result["dep_only_in_lock"]; !ok {
+		t.Error("expected lock-only dep to be included in result")
 	}
 }
 

@@ -66,19 +66,28 @@ func (p *CjpmParser) ParseCjpmLock(rootDir string) (*types.CjpmLock, error) {
 }
 
 func MergeDependencies(cjpmToml *types.CjpmToml, cjpmLock *types.CjpmLock) map[string]types.Dependency {
-	if cjpmLock == nil {
-		return cjpmToml.Dependencies
+	result := make(map[string]types.Dependency, len(cjpmToml.Dependencies))
+
+	for name, dep := range cjpmToml.Dependencies {
+		result[name] = dep
 	}
 
-	lockDeps := cjpmLock.GetAllDependencies()
-	for name, lockDep := range lockDeps {
-		if tomDep, ok := cjpmToml.Dependencies[name]; ok {
-			tomDep.CommitID = lockDep.CommitID
-			cjpmToml.Dependencies[name] = tomDep
+	if cjpmLock == nil {
+		return result
+	}
+
+	for name, lockDep := range cjpmLock.GetAllDependencies() {
+		if existing, ok := result[name]; ok {
+			existing.CommitID = lockDep.CommitID
+			result[name] = existing
+		} else {
+			lockDep.ParseName(name)
+			lockDep.DeduceType()
+			result[name] = lockDep
 		}
 	}
 
-	return cjpmToml.Dependencies
+	return result
 }
 
 type DependencyResolver struct {
@@ -124,6 +133,9 @@ func (r *DependencyResolver) resolveRecursive(dir string, allModules map[string]
 
 	cjpmToml, cjpmLock, err := r.parser.ParseProject(absDir)
 	if err != nil {
+		allModules[absDir] = &types.CjpmToml{
+			Package: types.Package{Name: filepath.Base(absDir)},
+		}
 		return nil
 	}
 
@@ -142,13 +154,19 @@ func (r *DependencyResolver) resolveRecursive(dir string, allModules map[string]
 
 		depPath := r.GetDependencyPath(name, dep)
 		if depPath == "" {
+			depPath = filepath.Join(r.cacheDir, ".virtual", name)
+			if visited[depPath] {
+				continue
+			}
+			visited[depPath] = true
+			allModules[depPath] = &types.CjpmToml{
+				Package: types.Package{Name: name},
+			}
 			continue
 		}
 
-		if _, err := os.Stat(filepath.Join(depPath, "cjpm.toml")); err == nil {
-			if err := r.resolveRecursive(depPath, allModules, visited); err != nil {
-				return err
-			}
+		if err := r.resolveRecursive(depPath, allModules, visited); err != nil {
+			return err
 		}
 	}
 
