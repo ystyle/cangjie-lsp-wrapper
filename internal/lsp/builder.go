@@ -122,6 +122,7 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 
 		if isRootModule {
 			config.SrcPath = srcPathURI
+			config.CommonSpecificPaths = b.buildCommonSpecificPaths(cjpmToml)
 		}
 
 		multiModule[moduleURI] = config
@@ -241,6 +242,34 @@ func (b *ConfigBuilder) buildPackageRequires(binDeps *types.BinDependencies) *ty
 	}
 
 	return pkgRequires
+}
+
+func (b *ConfigBuilder) buildCommonSpecificPaths(cjpmToml *types.CjpmToml) []types.CommonSpecificPath {
+	if !cjpmToml.HasSourceSets() {
+		return nil
+	}
+
+	var paths []types.CommonSpecificPath
+	for _, ss := range cjpmToml.SourceSets {
+		srcPath := filepath.Join(b.rootDir, ss.SrcDir)
+		uri := utils.FilePathToURI(srcPath)
+		if b.isWindows {
+			uri = utils.EscapeWindowsURI(uri)
+		}
+
+		pathType := "specific"
+		if ss.Name == "common" {
+			pathType = "common"
+		}
+
+		paths = append(paths, types.CommonSpecificPath{
+			Type: pathType,
+			Path: uri,
+			Name: ss.Name,
+		})
+	}
+
+	return paths
 }
 
 func (b *ConfigBuilder) buildBinDepPathURI(path string) string {

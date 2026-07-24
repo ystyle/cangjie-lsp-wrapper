@@ -75,6 +75,17 @@ type Target struct {
 	Dependencies          map[string]Dependency `toml:"dependencies,omitempty"`
 }
 
+type SourceSet struct {
+	Name     string   `toml:"name" json:"name"`
+	SrcDir   string   `toml:"src-dir" json:"src_dir"`
+	Features []string `toml:"features" json:"features"`
+}
+
+type FeatureCfg struct {
+	Name    string   `toml:"name" json:"name"`
+	Mapping []string `toml:"mapping" json:"mapping"`
+}
+
 type CjpmToml struct {
 	Package            Package               `toml:"package"`
 	Dependencies       map[string]Dependency `toml:"dependencies"`
@@ -82,6 +93,12 @@ type CjpmToml struct {
 	ScriptDependencies map[string]Dependency `toml:"script-dependencies"`
 	Replace            map[string]Dependency `toml:"replace"`
 	Targets            map[string]Target     `toml:"target"`
+	SourceSets         []SourceSet           `toml:"source-set"`
+	Features           []FeatureCfg          `toml:"feature"`
+}
+
+func (c *CjpmToml) HasSourceSets() bool {
+	return len(c.SourceSets) > 0
 }
 
 func (c *CjpmToml) GetBinDependencies() *BinDependencies {
@@ -143,12 +160,19 @@ type PackageRequires struct {
 	PathOption    []string          `json:"path_option"`
 }
 
+type CommonSpecificPath struct {
+	Type string `json:"type"`
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
 type ModuleConfig struct {
-	Name            string           `json:"name"`
-	SrcPath         string           `json:"src_path,omitempty"`
-	Combined        bool             `json:"combined"`
-	Requires        interface{}      `json:"requires,omitempty"`
-	PackageRequires *PackageRequires `json:"package_requires,omitempty"`
+	Name              string              `json:"name"`
+	SrcPath           string              `json:"src_path,omitempty"`
+	Combined          bool                `json:"combined"`
+	Requires          interface{}         `json:"requires,omitempty"`
+	PackageRequires   *PackageRequires    `json:"package_requires,omitempty"`
+	CommonSpecificPaths []CommonSpecificPath `json:"common_specific_paths,omitempty"`
 }
 
 type DepRef struct {

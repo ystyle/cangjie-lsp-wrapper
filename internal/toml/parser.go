@@ -32,6 +32,8 @@ type rawToml struct {
 	ScriptDependencies map[string]interface{}  `toml:"script-dependencies"`
 	Replace            map[string]interface{}  `toml:"replace"`
 	Targets            map[string]types.Target `toml:"target"`
+	SourceSets         []types.SourceSet       `toml:"source-set"`
+	Features           []types.FeatureCfg      `toml:"feature"`
 }
 
 func (p *tomlParser) ParseCjpmToml(content string) (*types.CjpmToml, error) {
@@ -55,6 +57,8 @@ func (p *tomlParser) ParseCjpmToml(content string) (*types.CjpmToml, error) {
 		ScriptDependencies: make(map[string]types.Dependency),
 		Replace:            make(map[string]types.Dependency),
 		Targets:            raw.Targets,
+		SourceSets:         raw.SourceSets,
+		Features:           raw.Features,
 	}
 
 	for name, dep := range raw.Dependencies {
