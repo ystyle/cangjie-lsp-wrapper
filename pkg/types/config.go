@@ -73,6 +73,8 @@ type Target struct {
 	LinkOption            string                `toml:"link-option,omitempty"`
 	BinDependencies       *BinDependencies      `toml:"bin-dependencies,omitempty"`
 	Dependencies          map[string]Dependency `toml:"dependencies,omitempty"`
+	TestDependencies      map[string]Dependency `toml:"test-dependencies,omitempty"`
+	ScriptDependencies    map[string]Dependency `toml:"script-dependencies,omitempty"`
 }
 
 type SourceSet struct {
@@ -86,8 +88,20 @@ type FeatureCfg struct {
 	Mapping []string `toml:"mapping" json:"mapping"`
 }
 
+type Workspace struct {
+	Members               []string `toml:"members"`
+	BuildMembers          []string `toml:"build-members,omitempty"`
+	TestMembers           []string `toml:"test-members,omitempty"`
+	CompileOption         string   `toml:"compile-option,omitempty"`
+	OverrideCompileOption string   `toml:"override-compile-option,omitempty"`
+	LinkOption            string   `toml:"link-option,omitempty"`
+	TargetDir             string   `toml:"target-dir,omitempty"`
+	ScriptDir             string   `toml:"script-dir,omitempty"`
+}
+
 type CjpmToml struct {
 	Package            Package               `toml:"package"`
+	Workspace          *Workspace            `toml:"workspace"`
 	Dependencies       map[string]Dependency `toml:"dependencies"`
 	TestDependencies   map[string]Dependency `toml:"test-dependencies"`
 	ScriptDependencies map[string]Dependency `toml:"script-dependencies"`
@@ -95,6 +109,10 @@ type CjpmToml struct {
 	Targets            map[string]Target     `toml:"target"`
 	SourceSets         []SourceSet           `toml:"source-set"`
 	Features           []FeatureCfg          `toml:"feature"`
+}
+
+func (c *CjpmToml) IsWorkspace() bool {
+	return c.Workspace != nil && len(c.Workspace.Members) > 0
 }
 
 func (c *CjpmToml) HasSourceSets() bool {

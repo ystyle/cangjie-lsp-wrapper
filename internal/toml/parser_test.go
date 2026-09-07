@@ -266,3 +266,146 @@ path-option = ["${CANGJIE_STDX_PATH}"]
 		}
 	}
 }
+
+func TestParseCjpmToml_Workspace(t *testing.T) {
+	content := `
+[workspace]
+members = ["pro1", "pro2"]
+build-members = ["pro1"]
+
+[dependencies]
+common-lib = { path = "./libs/common" }
+`
+
+	parser := NewParser()
+	result, err := parser.ParseCjpmToml(content)
+	if err != nil {
+		t.Fatalf("ParseCjpmToml failed: %v", err)
+	}
+
+	if result.Workspace == nil {
+		t.Fatal("expected workspace config, got nil")
+	}
+	if len(result.Workspace.Members) != 2 {
+		t.Errorf("expected 2 members, got %d", len(result.Workspace.Members))
+	}
+	if result.Workspace.Members[0] != "pro1" || result.Workspace.Members[1] != "pro2" {
+		t.Errorf("unexpected members: %v", result.Workspace.Members)
+	}
+	if len(result.Workspace.BuildMembers) != 1 || result.Workspace.BuildMembers[0] != "pro1" {
+		t.Errorf("unexpected build-members: %v", result.Workspace.BuildMembers)
+	}
+	if !result.IsWorkspace() {
+		t.Error("expected IsWorkspace true")
+	}
+
+	commonLib, ok := result.Dependencies["common-lib"]
+	if !ok {
+		t.Fatal("common-lib not found")
+	}
+	if commonLib.Type != "path" || commonLib.Path != "./libs/common" {
+		t.Errorf("unexpected common-lib: %+v", commonLib)
+	}
+}
+
+func TestParseCjpmToml_WorkspaceEmpty(t *testing.T) {
+	content := `
+[package]
+name = "plain-project"
+`
+
+	parser := NewParser()
+	result, err := parser.ParseCjpmToml(content)
+	if err != nil {
+		t.Fatalf("ParseCjpmToml failed: %v", err)
+	}
+
+	if result.IsWorkspace() {
+		t.Error("expected IsWorkspace false for package config")
+	}
+	if result.Workspace != nil {
+		t.Errorf("expected nil workspace, got %+v", result.Workspace)
+	}
+}
+
+func TestParseCjpmToml_WorkspaceAllFields(t *testing.T) {
+	content := `
+[workspace]
+members = ["a", "b"]
+build-members = ["a"]
+test-members = ["b"]
+compile-option = "-O2"
+override-compile-option = "-g"
+link-option = "-static"
+target-dir = "./out"
+script-dir = "./scripts"
+`
+
+	parser := NewParser()
+	result, err := parser.ParseCjpmToml(content)
+	if err != nil {
+		t.Fatalf("ParseCjpmToml failed: %v", err)
+	}
+
+	ws := result.Workspace
+	if ws == nil {
+		t.Fatal("expected workspace config")
+	}
+	if len(ws.BuildMembers) != 1 || ws.BuildMembers[0] != "a" {
+		t.Errorf("unexpected build-members: %v", ws.BuildMembers)
+	}
+	if len(ws.TestMembers) != 1 || ws.TestMembers[0] != "b" {
+		t.Errorf("unexpected test-members: %v", ws.TestMembers)
+	}
+	if ws.CompileOption != "-O2" {
+		t.Errorf("expected compile-option '-O2', got '%s'", ws.CompileOption)
+	}
+	if ws.OverrideCompileOption != "-g" {
+		t.Errorf("expected override-compile-option '-g', got '%s'", ws.OverrideCompileOption)
+	}
+	if ws.LinkOption != "-static" {
+		t.Errorf("expected link-option '-static', got '%s'", ws.LinkOption)
+	}
+	if ws.TargetDir != "./out" {
+		t.Errorf("expected target-dir './out', got '%s'", ws.TargetDir)
+	}
+	if ws.ScriptDir != "./scripts" {
+		t.Errorf("expected script-dir './scripts', got '%s'", ws.ScriptDir)
+	}
+}
+
+func TestParseCjpmToml_TargetSubDependencies(t *testing.T) {
+	content := `
+[package]
+name = "test-project"
+
+[target.x86_64-unknown-linux-gnu.dependencies]
+target-dep = { path = "./td" }
+
+[target.x86_64-unknown-linux-gnu.test-dependencies]
+test-dep = { path = "./tst" }
+
+[target.x86_64-unknown-linux-gnu.script-dependencies]
+script-dep = { path = "./scr" }
+`
+
+	parser := NewParser()
+	result, err := parser.ParseCjpmToml(content)
+	if err != nil {
+		t.Fatalf("ParseCjpmToml failed: %v", err)
+	}
+
+	target, ok := result.Targets["x86_64-unknown-linux-gnu"]
+	if !ok {
+		t.Fatal("target not found")
+	}
+	if _, ok := target.Dependencies["target-dep"]; !ok {
+		t.Error("target dependencies not parsed")
+	}
+	if _, ok := target.TestDependencies["test-dep"]; !ok {
+		t.Error("target test-dependencies not parsed")
+	}
+	if _, ok := target.ScriptDependencies["script-dep"]; !ok {
+		t.Error("target script-dependencies not parsed")
+	}
+}

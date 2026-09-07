@@ -27,6 +27,7 @@ type tomlParser struct{}
 
 type rawToml struct {
 	Package            types.Package           `toml:"package"`
+	Workspace          *types.Workspace        `toml:"workspace"`
 	Dependencies       map[string]interface{}  `toml:"dependencies"`
 	TestDependencies   map[string]interface{}  `toml:"test-dependencies"`
 	ScriptDependencies map[string]interface{}  `toml:"script-dependencies"`
@@ -52,6 +53,7 @@ func (p *tomlParser) ParseCjpmToml(content string) (*types.CjpmToml, error) {
 
 	result := &types.CjpmToml{
 		Package:            raw.Package,
+		Workspace:          raw.Workspace,
 		Dependencies:       make(map[string]types.Dependency),
 		TestDependencies:   make(map[string]types.Dependency),
 		ScriptDependencies: make(map[string]types.Dependency),

@@ -88,12 +88,13 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 
 		isRootModule := modulePath == b.rootDir
 
+		srcDir := cjpmToml.Package.SrcDir
+		if isRootModule && srcDir == "" {
+			srcDir = "src"
+		}
+
 		var srcPathURI string
-		if isRootModule {
-			srcDir := cjpmToml.Package.SrcDir
-			if srcDir == "" {
-				srcDir = "src"
-			}
+		if srcDir != "" {
 			srcPath := filepath.Join(modulePath, srcDir)
 			srcPathURI = utils.FilePathToURI(srcPath)
 			if b.isWindows {
@@ -120,8 +121,11 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 			PackageRequires: packageRequires,
 		}
 
-		if isRootModule {
+		if srcPathURI != "" {
 			config.SrcPath = srcPathURI
+		}
+
+		if isRootModule {
 			config.CommonSpecificPaths = b.buildCommonSpecificPaths(cjpmToml)
 		}
 
@@ -148,7 +152,7 @@ func (b *ConfigBuilder) buildRequiresFromModule(cjpmToml *types.CjpmToml, module
 		}
 
 		if dep.Type == "git" && dep.CommitID != "" {
-			gitPath := filepath.Join(b.homeDir, ".cjpm", "git", name, dep.CommitID)
+			gitPath := filepath.Join(b.homeDir, ".cjpm", "git", config.GitCacheDirName(name), dep.CommitID)
 			requires[name] = types.DepRef{
 				Git:    dep.Git,
 				Branch: dep.Branch,
@@ -159,8 +163,12 @@ func (b *ConfigBuilder) buildRequiresFromModule(cjpmToml *types.CjpmToml, module
 			if !filepath.IsAbs(absPath) {
 				absPath = filepath.Join(modulePath, dep.Path)
 			}
+			target, ok := config.ResolveDepModuleDir(absPath, name)
+			if !ok {
+				continue
+			}
 			requires[name] = types.DepRef{
-				Path: utils.FilePathToURI(absPath),
+				Path: utils.FilePathToURI(target),
 			}
 		} else if dep.Type == "central" {
 			centralPath := b.resolveCentralPath(dep)
@@ -176,41 +184,8 @@ func (b *ConfigBuilder) buildRequiresFromModule(cjpmToml *types.CjpmToml, module
 }
 
 func (b *ConfigBuilder) resolveCentralPath(dep types.Dependency) string {
-	org := dep.Org
-	if org == "" {
-		org = "default"
-	}
-
-	artifactID := dep.ArtifactID
-	version := dep.VersionSpec
-
 	repoDir := filepath.Join(b.homeDir, ".cjpm", "repository", "source")
-	orgDir := filepath.Join(repoDir, org)
-
-	entries, err := os.ReadDir(orgDir)
-	if err != nil {
-		return ""
-	}
-
-	var versions []string
-	prefix := artifactID + "-"
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), prefix) {
-			versions = append(versions, strings.TrimPrefix(entry.Name(), prefix))
-		}
-	}
-
-	matchedVersion := version
-	if matchedVersion == "" && len(versions) > 0 {
-		matchedVersion = versions[0]
-	}
-
-	if matchedVersion == "" {
-		return ""
-	}
-
-	artifactDirName := artifactID + "-" + matchedVersion
-	return filepath.Join(orgDir, artifactDirName)
+	return config.MatchCentralArtifactDir(repoDir, dep.Org, dep.ArtifactID, dep.VersionSpec)
 }
 
 func (b *ConfigBuilder) buildPackageRequires(binDeps *types.BinDependencies) *types.PackageRequires {

@@ -38,4 +38,7 @@ for _, runtimeType := range runtimeTypes {
 - 中央库依赖支持 (版本范围、组织名)
 - 初始化参数生成 (对齐 VSCode 格式)
 - LSP Server 日志参数 (`--enable-log=true`)
-- 动态平台检测 (llvm/cjnative)
+- 动态平台检测 (llvm/cjnative)- cjpm workspace 项目支持 (members 收集、公共依赖合并、按包名定位成员)
+- git 依赖缓存目录对齐 cjpm swapOrgName (org::name -> name@org)
+- target 级 (host) 源码依赖并入解析
+- replace 传播到传递依赖、workspace 公共依赖支持 replace
