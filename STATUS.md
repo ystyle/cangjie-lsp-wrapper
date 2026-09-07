@@ -42,3 +42,4 @@ for _, runtimeType := range runtimeTypes {
 - git 依赖缓存目录对齐 cjpm swapOrgName (org::name -> name@org)
 - target 级 (host) 源码依赖并入解析
 - replace 传播到传递依赖、workspace 公共依赖支持 replace
+- LSPServer 崩溃自动重启与假死检测 (client 无感, 文档重放, 健康清零, 冷却自愈)

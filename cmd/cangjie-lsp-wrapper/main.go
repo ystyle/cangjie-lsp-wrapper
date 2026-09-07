@@ -2,17 +2,14 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
-	"cangjie-lsp-wrapper/internal/lsp"
 	"cangjie-lsp-wrapper/pkg/utils"
 )
 
@@ -38,7 +35,7 @@ func init() {
 }
 
 func main() {
-	logger.Printf("Starting wrapper, CANGJIE_HOME=%s", os.Getenv("CANGJIE_HOME"))
+	logger.Printf("Starting wrapper v%s, CANGJIE_HOME=%s", version, os.Getenv("CANGJIE_HOME"))
 
 	cjHome := os.Getenv("CANGJIE_HOME")
 	if cjHome == "" {
@@ -60,181 +57,50 @@ func main() {
 	}
 
 	args := append([]string{"--enable-log=true", "--log-path=" + logDir}, os.Args[1:]...)
-	cmd := exec.Command(lspServerPath, args...)
-	cmd.Env = mergeEnv(os.Environ(), buildEnv(cjHome))
+	env := mergeEnv(os.Environ(), buildEnv(cjHome))
 
-	stdinPipe, err := cmd.StdinPipe()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating stdin pipe: %v\n", err)
-		os.Exit(1)
-	}
-
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating stdout pipe: %v\n", err)
-		os.Exit(1)
-	}
-	cmd.Stderr = os.Stderr
-
-	logger.Printf("Starting LSPServer: %s", lspServerPath)
-	if err := cmd.Start(); err != nil {
-		logger.Printf("Error starting LSPServer: %v", err)
-		os.Exit(1)
-	}
-
-	proxy := &LSPProxy{
-		cjHome:      cjHome,
-		clientIn:    stdinPipe,
-		serverOut:   stdoutPipe,
-		initialized: false,
-	}
-	proxy.Run()
-
-	cmd.Wait()
+	proxy := newSupervisor(cjHome, lspServerPath, args, env)
+	os.Exit(proxy.Run())
 }
 
-type LSPProxy struct {
-	cjHome      string
-	clientIn    io.Writer
-	serverOut   io.Reader
-	initialized bool
-}
-
-func (p *LSPProxy) Run() {
-	go p.forwardServerToClient()
-
-	reader := bufio.NewReader(os.Stdin)
+func readLSPMessage(reader *bufio.Reader) ([]byte, error) {
+	var contentLen int
 	for {
-		content, err := readLSPMessage(reader)
+		line, err := reader.ReadString('\n')
 		if err != nil {
-			if err != io.EOF {
-				logger.Printf("Error reading from client: %v", err)
-			}
-			return
+			return nil, err
 		}
-
-		content = p.interceptRequest(content)
-		sendLSPMessage(p.clientIn, content)
+		line = strings.TrimSpace(line)
+		if line == "" {
+			break
+		}
+		if strings.HasPrefix(strings.ToLower(line), "content-length:") {
+			fmt.Sscanf(strings.TrimSpace(line[15:]), "%d", &contentLen)
+		}
 	}
+
+	if contentLen == 0 {
+		return nil, fmt.Errorf("no content length")
+	}
+
+	content := make([]byte, contentLen)
+	if _, err := io.ReadFull(reader, content); err != nil {
+		return nil, err
+	}
+
+	logger.Printf("Received message: %d bytes", contentLen)
+	return content, nil
 }
 
-func (p *LSPProxy) forwardServerToClient() {
-	reader := bufio.NewReader(p.serverOut)
-	for {
-		// Read headers
-		var headers []string
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				if err != io.EOF {
-					logger.Printf("Error reading header from server: %v", err)
-				}
-				return
-			}
-			line = strings.TrimSpace(line)
-			if line == "" {
-				break
-			}
-			headers = append(headers, line)
-		}
-		logger.Printf("Server headers: %v", headers)
-
-		var contentLen int
-		for _, h := range headers {
-			if strings.HasPrefix(strings.ToLower(h), "content-length:") {
-				val := strings.TrimSpace(strings.TrimPrefix(h, "Content-Length:"))
-				if val == "" {
-					val = strings.TrimSpace(strings.TrimPrefix(h, "content-length:"))
-				}
-				fmt.Sscanf(val, "%d", &contentLen)
-			}
-		}
-
-		if contentLen == 0 {
-			logger.Printf("No content length in headers")
-			return
-		}
-
-		content := make([]byte, contentLen)
-		if _, err := io.ReadFull(reader, content); err != nil {
-			logger.Printf("Error reading content from server: %v", err)
-			return
-		}
-
-		logger.Printf("Server response: %s", string(content))
-		sendLSPMessage(os.Stdout, content)
+func sendLSPMessage(writer io.Writer, content []byte) error {
+	if _, err := fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n", len(content)); err != nil {
+		return err
 	}
+	_, err := writer.Write(content)
+	return err
 }
 
-func (p *LSPProxy) interceptRequest(content []byte) []byte {
-	var req map[string]interface{}
-	if err := json.Unmarshal(content, &req); err != nil {
-		logger.Printf("Failed to parse request: %v", err)
-		return content
-	}
-
-	method, _ := req["method"].(string)
-	logger.Printf("Intercepting method: %s", method)
-
-	if method == "initialize" && !p.initialized {
-		logger.Printf("Original request: %s", string(content))
-
-		rootDir := p.extractRootDir(req)
-		logger.Printf("Extracted rootDir: %s", rootDir)
-		if rootDir != "" {
-			builder := lsp.NewConfigBuilder(p.cjHome, rootDir)
-			cfg, err := builder.Build()
-			if err != nil {
-				logger.Printf("Failed to build config: %v", err)
-			} else {
-				params, ok := req["params"].(map[string]interface{})
-				if !ok {
-					params = make(map[string]interface{})
-					req["params"] = params
-				}
-
-				// 保留原有的 processId, clientInfo, trace
-				processId, _ := params["processId"]
-				clientInfo, _ := params["clientInfo"]
-				trace, _ := params["trace"]
-				workDoneToken, _ := params["workDoneToken"]
-
-				// 重写 params
-				params["initializationOptions"] = cfg.InitOptions
-				params["capabilities"] = cfg.Capabilities
-				params["workspaceFolders"] = cfg.WorkspaceFolders
-				params["rootUri"] = cfg.RootURI
-				params["rootPath"] = cfg.RootPath
-
-				// 恢复保留的字段
-				if processId != nil {
-					params["processId"] = processId
-				}
-				if clientInfo != nil {
-					params["clientInfo"] = clientInfo
-				}
-				if trace != nil {
-					params["trace"] = trace
-				}
-				if workDoneToken != nil {
-					params["workDoneToken"] = workDoneToken
-				}
-
-				initOptsJSON, _ := json.Marshal(cfg.InitOptions)
-				logger.Printf("Injected initializationOptions: %s", string(initOptsJSON))
-
-				p.initialized = true
-				modified, _ := json.Marshal(req)
-				logger.Printf("Modified request: %s", string(modified))
-				return modified
-			}
-		}
-	}
-
-	return content
-}
-
-func (p *LSPProxy) extractRootDir(req map[string]interface{}) string {
+func extractRootDir(req map[string]interface{}) string {
 	params, ok := req["params"].(map[string]interface{})
 	if !ok {
 		return ""
@@ -257,41 +123,6 @@ func (p *LSPProxy) extractRootDir(req map[string]interface{}) string {
 	}
 
 	return ""
-}
-
-func readLSPMessage(reader *bufio.Reader) ([]byte, error) {
-	var contentLen int
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		line = strings.TrimSpace(line)
-		if line == "" {
-			break
-		}
-		if strings.HasPrefix(strings.ToLower(line), "content-length:") {
-			val := strings.TrimSpace(line[15:])
-			fmt.Sscanf(val, "%d", &contentLen)
-		}
-	}
-
-	if contentLen == 0 {
-		return nil, fmt.Errorf("no content length")
-	}
-
-	content := make([]byte, contentLen)
-	if _, err := io.ReadFull(reader, content); err != nil {
-		return nil, err
-	}
-
-	logger.Printf("Received message: %d bytes", contentLen)
-	return content, nil
-}
-
-func sendLSPMessage(writer io.Writer, content []byte) {
-	fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n", len(content))
-	writer.Write(content)
 }
 
 func buildEnv(cjHome string) []string {
