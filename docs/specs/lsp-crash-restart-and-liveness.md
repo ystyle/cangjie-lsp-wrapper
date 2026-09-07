@@ -76,7 +76,7 @@ High-level behavior
 | 假死 | 空闲期探活 request 超时（默认 10s）无任何响应 | SIGKILL 子进程 → 走 restarting |
 | 慢处理（非死） | client 在途请求长时间无响应，但期间无探活或探活正常 | 不判死，仅记录日志 |
 | 正常退出 | 已透传 shutdown 响应并收到 exit 通知后 EOF | wrapper 退出，重启计数不触发 |
-| 启动即挂 | 重启后内部握手 initialize 超时（默认 15s） | 记一次异常，再次重启 |
+| 启动即挂 | 重启后内部握手 initialize 超时（默认 15s），或握手响应带 error 字段 | 记一次异常，再次重启 |
 
 判定依据说明：子进程退出必然关闭 stdout 管道（EOF 是可靠信号）；"协议状态"指 wrapper 是否已透传过 client 的 `shutdown` 请求的响应、是否已收到 `exit` 通知——只有完整走完这两个阶段后的 EOF 才视为正常关闭。
 
@@ -93,7 +93,7 @@ High-level behavior
 | 账本 | 维护时机 | 重放用途 |
 |---|---|---|
 | `initParams`：拦截后转发给 server 的完整 initialize params（JSON） | 首次 client initialize 拦截时 | 内部握手原样复用，保证重启后配置与首次完全一致（不重算，避免 cjpm.toml 中途变更导致漂移） |
-| `documents`：`uri → {version, text}` | didOpen 新增、didChange 更新（按全文替换，version 取消息内值）、didClose 删除 | 重启后逐条 `didOpen` 重放；增量 change 无需重放（didOpen 已含最新全文），server 后续收到的 didChange version 自然单调衔接 |
+| `documents`：`uri → {snapshotVersion, text, events}` | didOpen 新增（text=全文快照）；didChange 分两种：**全文替换**（无 range 的单一 change）→ 更新 text 快照与版本、清空 events；**增量补丁**（带 range）→ 原文入 events 队列（不做文本合并，避免 UTF-16 位置换算）；didClose 删除 | 重启后先 `didOpen`（text 快照 + snapshotVersion），再按序原样重放 events（内部版本号自 snapshotVersion 起单调衔接，server 端增量应用后得到最新全文）；随后 client 的新 didChange 正常衔接 |
 | `inFlight`：client request id 集合 | client 消息带 id+method 时加入；server 消息带 id 无 method 时移除 | 决定是否允许探活；不用于超时判死 |
 
 重启重放序列（restarting 内部）：
@@ -117,6 +117,8 @@ restarting 期间 client 仍可能发消息（client 不知道内部重启），
 | `textDocument/didOpen` / `didChange` / `didClose` | 只更新 documents 账本，不转发；重启完成后账本已是最新，重放即最终态 |
 | 其它 notification（含 `$/cancelRequest`） | 直接丢弃（无副作用或对象已随旧进程消亡） |
 | `exit` | 视为会话结束，wrapper 退出（透传语义） |
+
+崩溃感知前的"微窗口"（子进程已死但 wrapper 尚未读到 EOF，通常仅几毫秒）内写入的 client 消息可能落进无人读取的管道。为把丢失降到最低，**任何向子进程写失败的消息**（EPIPE/写错误）自动触发失败流程：request 先入缓冲队列（重启完成后原样重发，响应自然回到 client），再按连续失败计数走重启或冷却；若计数超限进入冷却，缓冲队列中的 request 逐条回显 `-32603` 错误而非无声丢弃。server 会话级事件（含 EOF）带会话序号且已幂等去重，避免重启流程被重复触发。
 
 并发结构（目标架构）：
 
