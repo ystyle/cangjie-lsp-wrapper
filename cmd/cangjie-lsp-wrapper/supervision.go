@@ -12,7 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"cangjie-lsp-wrapper/internal/lsp"
+	"cangjie-lsp-wrapper/pkg/types"
+	"cangjie-lsp-wrapper/pkg/utils"
 )
 
 type serverState int
@@ -146,7 +147,10 @@ type Supervisor struct {
 	pending []*wireMsg
 
 	serverEvCh chan serverEvent
-	rootDir    string
+
+	roots         []string
+	folders       []types.WorkspaceFolder
+	clientInitRaw json.RawMessage
 }
 
 func newSupervisor(cjHome, lspPath string, args, env []string) *Supervisor {
@@ -461,16 +465,137 @@ func (s *Supervisor) handleClientMsg(m *wireMsg) {
 }
 
 func (s *Supervisor) handleClientInitialize(m *wireMsg) {
-	modified := s.interceptInitialize(m.raw)
-	target := m.raw
-	if modified != nil {
-		target = modified
-		s.logf("Initialize request injected with generated config")
-	}
-	s.initParams = extractParams(target)
+	s.clientInitRaw = append(json.RawMessage(nil), m.raw...)
 	s.clientInitID = m.idStr
 	s.initParamsReady = true
+
+	target := s.rebuildInitParams()
+	if target == nil {
+		s.logf("Initialize forwarded without injected config")
+		target = m.raw
+	}
 	s.forwardToServer(&wireMsg{raw: target})
+}
+
+func (s *Supervisor) rebuildInitParams() []byte {
+	if len(s.clientInitRaw) == 0 {
+		return nil
+	}
+
+	state := workspaceStateFromRaw(s.clientInitRaw)
+	if len(s.folders) > 0 {
+		state.Folders = s.folders
+		state.Roots = cangjieRoots(s.folders)
+	}
+
+	modified := injectInitializationConfig(s.cjHome, s.clientInitRaw, state)
+	if modified == nil {
+		return nil
+	}
+
+	s.folders = state.Folders
+	s.roots = state.Roots
+	if len(s.roots) == 0 {
+		s.roots = fallbackRoots(s.folders)
+	}
+	s.initParams = extractParams(modified)
+	return modified
+}
+
+func (s *Supervisor) handleWorkspaceFoldersChange(raw []byte) {
+	added, removed := parseWorkspaceFoldersChange(raw)
+	if len(added) == 0 && len(removed) == 0 {
+		return
+	}
+
+	updated := mergeWorkspaceFolders(s.folders, added, removed)
+	if sameWorkspaceFolders(updated, s.folders) {
+		s.logf("Workspace folders notification without effective change")
+		return
+	}
+
+	s.folders = updated
+	if s.rebuildInitParams() == nil {
+		s.logf("Workspace folders changed but config rebuild failed; session unchanged")
+		return
+	}
+
+	s.logf("Workspace folders changed: %d folder(s), %d cangjie root(s); restarting server session", len(s.folders), len(s.roots))
+	s.restartNow()
+}
+
+func (s *Supervisor) hasRoot(root string) bool {
+	for _, existing := range s.roots {
+		if existing == root {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Supervisor) addRoot(root string) {
+	if root == "" || s.hasRoot(root) {
+		return
+	}
+	s.roots = append(s.roots, root)
+	s.folders = append(s.folders, types.WorkspaceFolder{
+		URI:  utils.FilePathToURI(root),
+		Name: filepath.Base(root),
+	})
+}
+
+func (s *Supervisor) loadProjectForDocument(raw []byte) {
+	if currentDiscoveryMode() != discoveryLazy {
+		return
+	}
+
+	uri := extractDocumentURI(raw)
+	if uri == "" {
+		return
+	}
+	path := utils.URIToFilePath(uri)
+	if path == "" {
+		return
+	}
+
+	root, ok := locateProjectRoot(path, s.folders)
+	if !ok || s.hasRoot(root) {
+		return
+	}
+
+	s.addRoot(root)
+	if s.rebuildInitParams() == nil {
+		s.logf("Failed to rebuild config for discovered project %s", root)
+		return
+	}
+
+	s.logf("Loading project on demand: %s; restarting server session", root)
+	s.restartNow()
+}
+
+func (s *Supervisor) loadPendingProjects() bool {
+	if currentDiscoveryMode() != discoveryLazy {
+		return false
+	}
+
+	loaded := false
+	for _, uri := range s.ledger.uris() {
+		path := utils.URIToFilePath(uri)
+		if path == "" {
+			continue
+		}
+		root, ok := locateProjectRoot(path, s.folders)
+		if !ok || s.hasRoot(root) {
+			continue
+		}
+		s.addRoot(root)
+		loaded = true
+	}
+
+	if !loaded {
+		return false
+	}
+	return s.rebuildInitParams() != nil
 }
 
 func extractParams(request []byte) json.RawMessage {
@@ -479,62 +604,6 @@ func extractParams(request []byte) json.RawMessage {
 		return nil
 	}
 	return req["params"]
-}
-
-func (s *Supervisor) interceptInitialize(raw []byte) []byte {
-	var req map[string]interface{}
-	if err := json.Unmarshal(raw, &req); err != nil {
-		logger.Printf("Failed to parse initialize request: %v", err)
-		return nil
-	}
-	rootDir := extractRootDir(req)
-	s.rootDir = rootDir
-	logger.Printf("Extracted rootDir: %s", rootDir)
-	if rootDir == "" {
-		return nil
-	}
-	builder := lsp.NewConfigBuilder(s.cjHome, rootDir)
-	cfg, err := builder.Build()
-	if err != nil {
-		logger.Printf("Failed to build config: %v", err)
-		return nil
-	}
-	params, ok := req["params"].(map[string]interface{})
-	if !ok {
-		params = make(map[string]interface{})
-		req["params"] = params
-	}
-	processId, _ := params["processId"]
-	clientInfo, _ := params["clientInfo"]
-	trace, _ := params["trace"]
-	workDoneToken, _ := params["workDoneToken"]
-
-	params["initializationOptions"] = cfg.InitOptions
-	params["capabilities"] = cfg.Capabilities
-	params["workspaceFolders"] = cfg.WorkspaceFolders
-	params["rootUri"] = cfg.RootURI
-	params["rootPath"] = cfg.RootPath
-
-	if processId != nil {
-		params["processId"] = processId
-	}
-	if clientInfo != nil {
-		params["clientInfo"] = clientInfo
-	}
-	if trace != nil {
-		params["trace"] = trace
-	}
-	if workDoneToken != nil {
-		params["workDoneToken"] = workDoneToken
-	}
-
-	modified, err := json.Marshal(req)
-	if err != nil {
-		logger.Printf("Failed to marshal modified request: %v", err)
-		return nil
-	}
-	logger.Printf("Injected initializationOptions for root %s", rootDir)
-	return modified
 }
 
 func (s *Supervisor) handleRunningClientMsg(m *wireMsg) {
@@ -556,6 +625,11 @@ func (s *Supervisor) handleRunningClientMsg(m *wireMsg) {
 		case "textDocument/didOpen", "textDocument/didChange", "textDocument/didClose":
 			s.ledger.handle(m.raw)
 			s.forwardOrFail(m, false)
+			if m.method == "textDocument/didOpen" {
+				s.loadProjectForDocument(m.raw)
+			}
+		case "workspace/didChangeWorkspaceFolders":
+			s.handleWorkspaceFoldersChange(m.raw)
 		case "exit":
 			s.logf("Client exit notification received")
 			s.state = stateExiting
@@ -694,7 +768,7 @@ func (s *Supervisor) handleRunningServerMsg(m *wireMsg) {
 			s.logf("First handshake complete, server running")
 			s.resetProbeTimer()
 			s.resetStableTimer()
-			s.sendToClient(m.raw)
+			s.sendToClient(injectWorkspaceFoldersCapability(m.raw))
 			return
 		}
 		if _, ok := s.inFlight[m.idStr]; ok {
@@ -744,6 +818,11 @@ func (s *Supervisor) handshakeDone() {
 	s.resetProbeTimer()
 	s.resetStableTimer()
 	s.logf("Server session %d running", s.sessionSeq)
+
+	if s.loadPendingProjects() {
+		s.logf("Projects discovered from open documents; restarting server session")
+		s.restartNow()
+	}
 }
 
 func (s *Supervisor) flushPending() {
@@ -793,8 +872,10 @@ func (s *Supervisor) spawnAndHandshake() {
 		s.handleFailure("startup: spawn failed")
 		return
 	}
-	if s.params.cleanCacheOnRestart && s.rootDir != "" {
-		cleanAstCache(s.rootDir)
+	if s.params.cleanCacheOnRestart {
+		for _, root := range s.roots {
+			cleanAstCache(root)
+		}
 	}
 	if !s.initParamsReady {
 		s.logf("No cached init params, cannot handshake")

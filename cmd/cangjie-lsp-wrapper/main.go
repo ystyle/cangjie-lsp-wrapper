@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"cangjie-lsp-wrapper/pkg/utils"
 )
 
 var version = "dev"
@@ -98,31 +96,6 @@ func sendLSPMessage(writer io.Writer, content []byte) error {
 	}
 	_, err := writer.Write(content)
 	return err
-}
-
-func extractRootDir(req map[string]interface{}) string {
-	params, ok := req["params"].(map[string]interface{})
-	if !ok {
-		return ""
-	}
-
-	if wf, ok := params["workspaceFolders"].([]interface{}); ok && len(wf) > 0 {
-		if folder, ok := wf[0].(map[string]interface{}); ok {
-			if uri, ok := folder["uri"].(string); ok {
-				return utils.URIToFilePath(uri)
-			}
-		}
-	}
-
-	if rootUri, ok := params["rootUri"].(string); ok {
-		return utils.URIToFilePath(rootUri)
-	}
-
-	if rootPath, ok := params["rootPath"].(string); ok {
-		return rootPath
-	}
-
-	return ""
 }
 
 func buildEnv(cjHome string) []string {

@@ -297,7 +297,7 @@ func TestExpandEnvVar(t *testing.T) {
 
 func TestBuildWorkspaceFolders(t *testing.T) {
 	b := newTestBuilder()
-	folders := b.buildWorkspaceFolders()
+	folders := b.buildWorkspaceFolders("/test/project")
 
 	if len(folders) != 1 {
 		t.Fatalf("expected 1 folder, got %d", len(folders))

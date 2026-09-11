@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"cangjie-lsp-wrapper/pkg/types"
+	"cangjie-lsp-wrapper/pkg/utils"
 )
 
 const fakeLSPEnv = "CANGJIE_WRAPPER_FAKE_LSP"
@@ -45,8 +48,11 @@ func TestFakeLSPBody(t *testing.T) {
 		if err := json.Unmarshal(content, &msg); err != nil {
 			continue
 		}
-		if msg.Method == "textDocument/didOpen" && logPath != "" {
+		if msg.Method == "textDocument/didOpen" && logPath != "" && mode != "logInit" {
 			_ = os.WriteFile(logPath, content, 0644)
+		}
+		if msg.Method == "initialize" && logPath != "" {
+			appendLogLine(logPath, content)
 		}
 		if mode == "crashOnDidChange" && msg.Method == "textDocument/didChange" {
 			os.Exit(3)
@@ -78,6 +84,16 @@ func TestFakeLSPBody(t *testing.T) {
 	}
 }
 
+func appendLogLine(path string, content []byte) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(content)
+	_, _ = f.Write([]byte("\n"))
+}
+
 type clientHarness struct {
 	s       *Supervisor
 	in      io.WriteCloser
@@ -91,7 +107,7 @@ func startHarness(t *testing.T, mode string, tune func(*Supervisor)) *clientHarn
 	t.Helper()
 	bin, args, env := fakeLSPCommand(t, mode)
 	h := &clientHarness{}
-	if mode == "crashOnDidOpen" || mode == "crashOnDidChange" {
+	if mode == "crashOnDidOpen" || mode == "crashOnDidChange" || mode == "logInit" {
 		h.logFile = filepath.Join(t.TempDir(), "server-log.json")
 		env = append(env, "FAKE_LSP_LOG="+h.logFile)
 	}
@@ -378,5 +394,255 @@ func TestIntegrationHealthResetBetweenCrashes(t *testing.T) {
 			t.Fatalf("unexpected cooldown despite healthy periods between crashes: %v", m)
 		}
 	case <-time.After(1 * time.Second):
+	}
+}
+
+func readInitializeRequests(path string) []map[string]interface{} {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var requests []map[string]interface{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var m map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &m); err == nil {
+			requests = append(requests, m)
+		}
+	}
+	return requests
+}
+
+func waitForInitializeRequests(t *testing.T, path string, count int, timeout time.Duration) []map[string]interface{} {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if requests := readInitializeRequests(path); len(requests) >= count {
+			return requests
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d initialize request(s)", count)
+	return nil
+}
+
+func forwardedParams(t *testing.T, request map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	params, ok := request["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("initialize params missing: %v", request)
+	}
+	return params
+}
+
+func forwardedModuleCount(t *testing.T, params map[string]interface{}) int {
+	t.Helper()
+	initOpts, ok := params["initializationOptions"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("initializationOptions missing: %v", params)
+	}
+	modules, ok := initOpts["multiModuleOption"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("multiModuleOption missing: %v", initOpts)
+	}
+	return len(modules)
+}
+
+func TestIntegrationMultiRootInitialize(t *testing.T) {
+	dir := t.TempDir()
+	proj1 := makeProject(t, filepath.Join(dir, "proj1"), "proj1")
+	proj2 := makeProject(t, filepath.Join(dir, "proj2"), "proj2")
+
+	h := startHarness(t, "logInit", nil)
+	defer h.in.Close()
+
+	h.send(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]interface{}{
+			"rootUri": utils.FilePathToURI(proj1),
+			"workspaceFolders": toRawFolders([]types.WorkspaceFolder{
+				pathFolder(proj1, "proj1"),
+				pathFolder(proj2, "proj2"),
+			}),
+			"capabilities": map[string]interface{}{},
+		},
+	})
+
+	resp := h.waitFor(t, 10*time.Second, func(m map[string]interface{}) bool {
+		id, _ := m["id"].(float64)
+		return id == 1 && m["result"] != nil
+	})
+
+	result, _ := resp["result"].(map[string]interface{})
+	caps, _ := result["capabilities"].(map[string]interface{})
+	workspace, _ := caps["workspace"].(map[string]interface{})
+	foldersCap, _ := workspace["workspaceFolders"].(map[string]interface{})
+	if foldersCap["changeNotifications"] != true {
+		t.Fatalf("expected workspaceFolders changeNotifications capability, got %v", caps)
+	}
+
+	requests := waitForInitializeRequests(t, h.logFile, 1, 5*time.Second)
+	params := forwardedParams(t, requests[0])
+	if got := forwardedModuleCount(t, params); got != 2 {
+		t.Fatalf("expected 2 modules forwarded to server, got %d", got)
+	}
+	if folders, ok := params["workspaceFolders"].([]interface{}); !ok || len(folders) != 2 {
+		t.Fatalf("expected 2 workspace folders forwarded, got %v", params["workspaceFolders"])
+	}
+	if params["rootPath"] != proj1 {
+		t.Errorf("expected primary root %q, got %v", proj1, params["rootPath"])
+	}
+}
+
+func TestIntegrationLazyDiscoveryLoadsProjectOnDidOpen(t *testing.T) {
+	t.Setenv(discoveryEnv, "lazy")
+	dir := t.TempDir()
+	ws := filepath.Join(dir, "ws")
+	os.MkdirAll(ws, 0755)
+	proj1 := makeProject(t, filepath.Join(ws, "proj1"), "proj1")
+
+	h := startHarness(t, "logInit", nil)
+	defer h.in.Close()
+
+	h.send(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]interface{}{
+			"rootUri":          utils.FilePathToURI(ws),
+			"workspaceFolders": toRawFolders([]types.WorkspaceFolder{pathFolder(ws, "ws")}),
+			"capabilities":     map[string]interface{}{},
+		},
+	})
+	h.waitFor(t, 10*time.Second, func(m map[string]interface{}) bool {
+		id, _ := m["id"].(float64)
+		return id == 1 && m["result"] != nil
+	})
+	h.send(map[string]interface{}{"jsonrpc": "2.0", "method": "initialized", "params": map[string]interface{}{}})
+
+	requests := waitForInitializeRequests(t, h.logFile, 1, 5*time.Second)
+	firstModules, _ := forwardedParams(t, requests[0])["initializationOptions"].(map[string]interface{})["multiModuleOption"].(map[string]interface{})
+	if _, ok := firstModules[utils.FilePathToURI(proj1)]; ok {
+		t.Fatalf("project must not be loaded before its document is opened")
+	}
+
+	h.sendRaw(fmt.Sprintf(`{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"%s","languageId":"Cangjie","version":1,"text":"package proj1"}}}`,
+		utils.FilePathToURI(filepath.Join(proj1, "src", "main.cj"))))
+
+	requests = waitForInitializeRequests(t, h.logFile, 2, 15*time.Second)
+	secondModules, _ := forwardedParams(t, requests[1])["initializationOptions"].(map[string]interface{})["multiModuleOption"].(map[string]interface{})
+	if _, ok := secondModules[utils.FilePathToURI(proj1)]; !ok {
+		t.Fatalf("expected lazily discovered project %s in modules, got %v", proj1, secondModules)
+	}
+
+	h.send(map[string]interface{}{"jsonrpc": "2.0", "id": 4, "method": "shutdown"})
+	h.waitFor(t, 10*time.Second, func(m map[string]interface{}) bool {
+		id, _ := m["id"].(float64)
+		return id == 4
+	})
+	h.send(map[string]interface{}{"jsonrpc": "2.0", "method": "exit"})
+	if code := h.exitCode(t, 15*time.Second); code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+}
+
+func TestIntegrationEagerDiscoveryLoadsNestedProjects(t *testing.T) {
+	t.Setenv(discoveryEnv, "eager")
+	dir := t.TempDir()
+	ws := filepath.Join(dir, "ws")
+	os.MkdirAll(ws, 0755)
+	proj1 := makeProject(t, filepath.Join(ws, "proj1"), "proj1")
+	proj2 := makeProject(t, filepath.Join(ws, "proj2"), "proj2")
+
+	h := startHarness(t, "logInit", nil)
+	defer h.in.Close()
+
+	h.send(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]interface{}{
+			"rootUri":          utils.FilePathToURI(ws),
+			"workspaceFolders": toRawFolders([]types.WorkspaceFolder{pathFolder(ws, "ws")}),
+			"capabilities":     map[string]interface{}{},
+		},
+	})
+	h.waitFor(t, 10*time.Second, func(m map[string]interface{}) bool {
+		id, _ := m["id"].(float64)
+		return id == 1 && m["result"] != nil
+	})
+
+	requests := waitForInitializeRequests(t, h.logFile, 1, 5*time.Second)
+	modules, _ := forwardedParams(t, requests[0])["initializationOptions"].(map[string]interface{})["multiModuleOption"].(map[string]interface{})
+	for _, project := range []string{proj1, proj2} {
+		if _, ok := modules[utils.FilePathToURI(project)]; !ok {
+			t.Fatalf("expected eager discovered project %s in modules, got %v", project, modules)
+		}
+	}
+}
+
+func TestIntegrationWorkspaceFolderChangeTriggersReconfigure(t *testing.T) {
+	dir := t.TempDir()
+	proj1 := makeProject(t, filepath.Join(dir, "proj1"), "proj1")
+	proj2 := makeProject(t, filepath.Join(dir, "proj2"), "proj2")
+
+	h := startHarness(t, "logInit", nil)
+	defer h.in.Close()
+
+	h.send(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]interface{}{
+			"rootUri": utils.FilePathToURI(proj1),
+			"workspaceFolders": toRawFolders([]types.WorkspaceFolder{
+				pathFolder(proj1, "proj1"),
+			}),
+			"capabilities": map[string]interface{}{},
+		},
+	})
+	h.waitFor(t, 10*time.Second, func(m map[string]interface{}) bool {
+		id, _ := m["id"].(float64)
+		return id == 1 && m["result"] != nil
+	})
+	h.send(map[string]interface{}{"jsonrpc": "2.0", "method": "initialized", "params": map[string]interface{}{}})
+
+	requests := waitForInitializeRequests(t, h.logFile, 1, 5*time.Second)
+	if got := forwardedModuleCount(t, forwardedParams(t, requests[0])); got != 1 {
+		t.Fatalf("expected 1 module before folder change, got %d", got)
+	}
+
+	h.send(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "workspace/didChangeWorkspaceFolders",
+		"params": map[string]interface{}{
+			"event": map[string]interface{}{
+				"added":   toRawFolders([]types.WorkspaceFolder{pathFolder(proj2, "proj2")}),
+				"removed": []interface{}{},
+			},
+		},
+	})
+
+	requests = waitForInitializeRequests(t, h.logFile, 2, 20*time.Second)
+	params := forwardedParams(t, requests[1])
+	if got := forwardedModuleCount(t, params); got != 2 {
+		t.Fatalf("expected 2 modules after folder added, got %d", got)
+	}
+	if folders, ok := params["workspaceFolders"].([]interface{}); !ok || len(folders) != 2 {
+		t.Fatalf("expected 2 workspace folders after change, got %v", params["workspaceFolders"])
+	}
+
+	h.send(map[string]interface{}{"jsonrpc": "2.0", "id": 3, "method": "shutdown"})
+	h.waitFor(t, 10*time.Second, func(m map[string]interface{}) bool {
+		id, _ := m["id"].(float64)
+		return id == 3
+	})
+	h.send(map[string]interface{}{"jsonrpc": "2.0", "method": "exit"})
+	if code := h.exitCode(t, 15*time.Second); code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
 	}
 }

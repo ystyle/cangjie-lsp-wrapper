@@ -86,6 +86,36 @@ vim.lsp.start({
 }
 ```
 
+## 多文件夹工作区（multi-root）
+
+客户端在同一个会话中打开多个工作区文件夹时（VSCode 的 `.code-workspace`、Neovim 的多个 root 等），wrapper 为其中**每个仓颉工程**都提供语言服务：
+
+- 解析全部工作区文件夹，把其中每个仓颉工程（含 cjpm workspace members 与依赖闭包）合并进同一个 LSPServer 会话；
+- 把父目录当作工作区打开时（如 `~/Code/CangJie` 下并列多个工程），**打开某个工程的文件即按需加载该工程**（向上查找最近的 `cjpm.toml`），加载完成后自动重放已打开文档，客户端无感；
+- `workspaceFolders` 保留客户端传入的全部文件夹，`rootUri` / `rootPath` 指向第一个仓颉工程；
+- 向客户端声明 `workspace.workspaceFolders.changeNotifications`，运行期增删文件夹时自动重建配置并重启内部 LSPServer，已打开文档自动重放，客户端无感。
+
+嵌套工程的发现策略由 `CANGJIE_LSP_DISCOVERY` 控制：
+
+| 值 | 行为 |
+|---|---|
+| `lazy`（默认） | 打开文件时按需加载其所属工程，启动开销与工程数量无关 |
+| `eager` | 启动时扫描每个文件夹的直接子目录（跳过 `target`、`build`、`node_modules` 与隐藏目录，单文件夹上限 64 个），一次性全部加载 |
+| `off` | 只服务工作区文件夹自身或显式传入的工程 |
+
+> `eager` 在工程数量多时会让 LSPServer 长时间忙于全量索引（实测 51 个工程的目录超过 5 分钟不响应 initialize），除非确实需要一次性加载全部工程，否则保持默认的 `lazy`。
+
+只有单个文件夹且其下无嵌套工程时，行为与之前完全一致。
+
+限制：
+
+- 同一会话共用一个 `CANGJIE_HOME`，多个工程需要不同 SDK 版本时无法同时满足；
+- `targetLib` 指向第一个仓颉工程的 `target/release`；
+- 两个工程存在同名包时，LSPServer 内部的 cjo 缓存可能互相影响；
+- 纳入的工程越多，LSPServer 的索引开销越大（`lazy` 模式下只加载实际打开过的工程）。
+
+设计细节见 `docs/specs/multi-root-workspace.md`。
+
 ## 稳定性（自动恢复）
 
 仓颉 LSPServer 目前不够稳定。wrapper 作为监督代理内置自愈能力，客户端（编辑器）无需任何配合：

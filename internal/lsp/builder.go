@@ -4,6 +4,7 @@ import (
 	"cangjie-lsp-wrapper/internal/config"
 	"cangjie-lsp-wrapper/pkg/types"
 	"cangjie-lsp-wrapper/pkg/utils"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,29 +14,79 @@ import (
 type ConfigBuilder struct {
 	cjHome    string
 	rootDir   string
+	roots     []string
+	folders   []types.WorkspaceFolder
 	isWindows bool
 	homeDir   string
 	resolver  *config.DependencyResolver
 }
 
 func NewConfigBuilder(cjHome, rootDir string) *ConfigBuilder {
+	return NewMultiRootConfigBuilder(cjHome, []string{rootDir}, nil)
+}
+
+func NewMultiRootConfigBuilder(cjHome string, roots []string, folders []types.WorkspaceFolder) *ConfigBuilder {
 	isWindows := runtime.GOOS == "windows"
 	homeDir := os.Getenv("HOME")
 	if isWindows && homeDir == "" {
 		homeDir = os.Getenv("USERPROFILE")
 	}
 
+	cleaned := make([]string, 0, len(roots))
+	seen := make(map[string]bool)
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		abs, err := filepath.Abs(root)
+		if err != nil {
+			abs = root
+		}
+		abs = filepath.Clean(abs)
+		if seen[abs] {
+			continue
+		}
+		seen[abs] = true
+		cleaned = append(cleaned, abs)
+	}
+
+	rootDir := ""
+	if len(cleaned) > 0 {
+		rootDir = cleaned[0]
+	}
+
 	return &ConfigBuilder{
 		cjHome:    cjHome,
 		rootDir:   rootDir,
+		roots:     cleaned,
+		folders:   folders,
 		isWindows: isWindows,
 		homeDir:   homeDir,
 		resolver:  config.NewDependencyResolver(homeDir),
 	}
 }
 
+func (b *ConfigBuilder) effectiveRoots() []string {
+	if len(b.roots) > 0 {
+		return b.roots
+	}
+	if b.rootDir == "" {
+		return nil
+	}
+	return []string{b.rootDir}
+}
+
+func (b *ConfigBuilder) isRootDir(path string) bool {
+	for _, root := range b.effectiveRoots() {
+		if root == path {
+			return true
+		}
+	}
+	return false
+}
+
 func (b *ConfigBuilder) Build() (*types.LSPConfig, error) {
-	allModules, err := b.resolver.ResolveAll(b.rootDir)
+	allModules, primary, err := b.resolveRoots()
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +97,7 @@ func (b *ConfigBuilder) Build() (*types.LSPConfig, error) {
 		MultiModuleOption:            multiModuleOption,
 		ModulesHomeOption:            b.cjHome,
 		StdLibPathOption:             filepath.ToSlash(filepath.Join(b.cjHome, "lib")),
-		TargetLib:                    filepath.ToSlash(filepath.Join(b.rootDir, "target", "release")),
+		TargetLib:                    filepath.ToSlash(filepath.Join(primary, "target", "release")),
 		ConditionCompileOption:       map[string]interface{}{},
 		SingleConditionCompileOption: map[string]interface{}{},
 		ConditionCompilePaths:        []interface{}{},
@@ -54,8 +105,8 @@ func (b *ConfigBuilder) Build() (*types.LSPConfig, error) {
 		ExtensionPath:                b.cjHome,
 	}
 
-	workspaceFolders := b.buildWorkspaceFolders()
-	rootURI := utils.FilePathToURI(b.rootDir)
+	workspaceFolders := b.buildWorkspaceFolders(primary)
+	rootURI := utils.FilePathToURI(primary)
 	if b.isWindows {
 		rootURI = utils.EscapeWindowsURI(rootURI)
 	}
@@ -65,8 +116,42 @@ func (b *ConfigBuilder) Build() (*types.LSPConfig, error) {
 		WorkspaceFolders: workspaceFolders,
 		Capabilities:     b.buildCapabilities(),
 		RootURI:          rootURI,
-		RootPath:         b.rootDir,
+		RootPath:         primary,
 	}, nil
+}
+
+func (b *ConfigBuilder) resolveRoots() (map[string]*types.CjpmToml, string, error) {
+	allModules := make(map[string]*types.CjpmToml)
+	primary := ""
+	var lastErr error
+
+	for _, root := range b.effectiveRoots() {
+		if _, exists := allModules[root]; exists {
+			continue
+		}
+		modules, err := b.resolver.ResolveAll(root)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		for path, cjpmToml := range modules {
+			if _, exists := allModules[path]; !exists {
+				allModules[path] = cjpmToml
+			}
+		}
+		if primary == "" {
+			primary = root
+		}
+	}
+
+	if primary == "" {
+		if lastErr == nil {
+			lastErr = fmt.Errorf("no workspace root could be resolved")
+		}
+		return nil, "", lastErr
+	}
+
+	return allModules, primary, nil
 }
 
 func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*types.CjpmToml) map[string]types.ModuleConfig {
@@ -86,7 +171,7 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 			moduleURI = utils.EscapeWindowsURI(moduleURI)
 		}
 
-		isRootModule := modulePath == b.rootDir
+		isRootModule := b.isRootDir(modulePath)
 
 		srcDir := cjpmToml.Package.SrcDir
 		if isRootModule && srcDir == "" {
@@ -126,7 +211,7 @@ func (b *ConfigBuilder) buildMultiModuleOptionRecursive(allModules map[string]*t
 		}
 
 		if isRootModule {
-			config.CommonSpecificPaths = b.buildCommonSpecificPaths(cjpmToml)
+			config.CommonSpecificPaths = b.buildCommonSpecificPaths(cjpmToml, modulePath)
 		}
 
 		multiModule[moduleURI] = config
@@ -219,14 +304,14 @@ func (b *ConfigBuilder) buildPackageRequires(binDeps *types.BinDependencies) *ty
 	return pkgRequires
 }
 
-func (b *ConfigBuilder) buildCommonSpecificPaths(cjpmToml *types.CjpmToml) []types.CommonSpecificPath {
+func (b *ConfigBuilder) buildCommonSpecificPaths(cjpmToml *types.CjpmToml, rootDir string) []types.CommonSpecificPath {
 	if !cjpmToml.HasSourceSets() {
 		return nil
 	}
 
 	var paths []types.CommonSpecificPath
 	for _, ss := range cjpmToml.SourceSets {
-		srcPath := filepath.Join(b.rootDir, ss.SrcDir)
+		srcPath := filepath.Join(rootDir, ss.SrcDir)
 		uri := utils.FilePathToURI(srcPath)
 		if b.isWindows {
 			uri = utils.EscapeWindowsURI(uri)
@@ -279,20 +364,29 @@ func (b *ConfigBuilder) expandEnvVar(path string) string {
 	return result
 }
 
-func (b *ConfigBuilder) buildWorkspaceFolders() []types.WorkspaceFolder {
-	workspaceURI := utils.FilePathToURI(b.rootDir)
-	if b.isWindows {
-		workspaceURI = utils.EscapeWindowsURI(workspaceURI)
+func (b *ConfigBuilder) buildWorkspaceFolders(primary string) []types.WorkspaceFolder {
+	if len(b.folders) > 0 {
+		return b.folders
 	}
 
-	workspaceName := filepath.Base(b.rootDir)
+	roots := b.effectiveRoots()
+	if len(roots) == 0 {
+		roots = []string{primary}
+	}
 
-	return []types.WorkspaceFolder{
-		{
+	folders := make([]types.WorkspaceFolder, 0, len(roots))
+	for _, root := range roots {
+		workspaceURI := utils.FilePathToURI(root)
+		if b.isWindows {
+			workspaceURI = utils.EscapeWindowsURI(workspaceURI)
+		}
+		folders = append(folders, types.WorkspaceFolder{
 			URI:  workspaceURI,
-			Name: workspaceName,
-		},
+			Name: filepath.Base(root),
+		})
 	}
+
+	return folders
 }
 
 func (b *ConfigBuilder) GetLSPServerPath() string {

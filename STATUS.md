@@ -43,3 +43,5 @@ for _, runtimeType := range runtimeTypes {
 - target 级 (host) 源码依赖并入解析
 - replace 传播到传递依赖、workspace 公共依赖支持 replace
 - LSPServer 崩溃自动重启与假死检测 (client 无感, 文档重放, 健康清零, 冷却自愈)
+- 单工作区多文件夹 (multi-root): 多工程模块配置合并进同一会话, 保留全部 workspaceFolders, 运行期文件夹增删自动重建配置并重启 (client 无感)
+- 同 root 多项目: 打开父目录下的工程文件时按需加载该工程 (向上查找 cjpm.toml, 加载后重放文档), CANGJIE_LSP_DISCOVERY=lazy(默认)/eager/off 三态

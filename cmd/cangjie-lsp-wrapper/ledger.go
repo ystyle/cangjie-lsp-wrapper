@@ -190,6 +190,14 @@ func (l *documentLedger) isEmpty() bool {
 	return len(l.docs) == 0
 }
 
+func (l *documentLedger) uris() []string {
+	uris := make([]string, 0, len(l.docs))
+	for uri := range l.docs {
+		uris = append(uris, uri)
+	}
+	return uris
+}
+
 func (l *documentLedger) count() int {
 	return len(l.docs)
 }
