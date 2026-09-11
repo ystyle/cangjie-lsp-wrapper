@@ -2,6 +2,8 @@
 
 仓颉语言 LSP 包装器，自动解析 `cjpm.toml` 和 `cjpm.lock`，生成 LSP 初始化参数，并监督 LSPServer 子进程：崩溃/假死时自动重启，客户端会话全程无感。
 
+支持单个会话内服务多个仓颉工程：多工作区文件夹、cjpm workspace 成员、以及父目录下并列的多个工程（按需加载），详见[多文件夹工作区](#多文件夹工作区multi-root)。
+
 ## 下载
 
 从 [Releases](https://github.com/ystyle/cangjie-lsp-wrapper/releases) 下载对应平台的二进制文件。
@@ -137,6 +139,7 @@ vim.lsp.start({
 | `CANGJIE_LSP_COOLDOWN_MAX_SECS` | 1800 | 冷却时长上限（秒） |
 | `CANGJIE_LSP_COOLDOWN_MAX_RETRIES` | 0 | 冷却重试总预算，0 = 无限（设 N 表示试 N 次后放弃退出） |
 | `CANGJIE_LSP_HANDSHAKE_TIMEOUT_SECS` | 15 | 重启后内部握手超时（秒） |
+| `CANGJIE_LSP_DISCOVERY` | lazy | 嵌套工程发现策略：`lazy` / `eager` / `off`（见[多文件夹工作区](#多文件夹工作区multi-root)） |
 | `CANGJIE_LSP_CLEAN_CACHE_ON_RESTART` | false | 崩溃重启前清理 `<项目根>/.cache/astdata` 缓存 |
 
 ## 日志
